@@ -8,9 +8,32 @@
   "bin": {
     "cutshort-agent": "src/index.js"
   },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "bundle": "node scripts/bundle-app.mjs",
+    "prepublishOnly": "node scripts/bundle-app.mjs"
   },
+  "keywords": [
+    "shortcut",
+    "keyboard",
+    "remote",
+    "macros",
+    "stream-deck",
+    "nut-js",
+    "websocket",
+    "cloudflare-tunnel"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SimonSaysGiveMeSmile/cutshort.git",
+    "directory": "agent"
+  },
+  "homepage": "https://github.com/SimonSaysGiveMeSmile/cutshort#readme",
   "engines": {
     "node": ">=18"
   },

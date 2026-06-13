@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "agent": "npm start --prefix agent",
+    "agent:install": "npm install --prefix agent"
   },
   "dependencies": {
     "lucide-react": "^1.18.0",

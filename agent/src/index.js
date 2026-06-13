@@ -23,7 +23,15 @@ import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.resolve(__dirname, "..", "..", "dist");
+// Prefer a dist bundled inside the published package; fall back to the repo's
+// sibling dist when running from a clone.
+const DIST = [
+  path.resolve(__dirname, "..", "dist"), // published package: agent/dist
+  path.resolve(__dirname, "..", "..", "dist"), // repo dev: <root>/dist
+].find((p) => fs.existsSync(path.join(p, "index.html")));
+const HAS_APP = !!DIST;
+// When the app isn't bundled, point the QR at the hosted deck instead.
+const HOSTED_APP = process.env.CUTSHORT_APP || "https://cutshort.online";
 const PORT = Number(process.env.CUTSHORT_PORT || 8787);
 const HOSTNAME = os.hostname().replace(/\.local$/, "");
 const PLATFORM = process.platform === "darwin" ? "mac" : "win";
@@ -45,6 +53,11 @@ function serveStatic(req, res) {
   if (req.url === "/health" || req.url === "/api/ping") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, host: HOSTNAME, os: PLATFORM, version: VERSION }));
+    return;
+  }
+  if (!HAS_APP) {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("CutShort agent is running. Scan the QR from the terminal to open the deck.");
     return;
   }
   let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
@@ -122,21 +135,33 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log("┌──────────────────────────────────────────────┐");
   console.log(`│  CutShort agent  ·  ${HOSTNAME} (${PLATFORM})`.padEnd(49) + "│");
   console.log("└──────────────────────────────────────────────┘");
-  if (!fs.existsSync(DIST)) {
-    console.warn("⚠  ../dist not found — run `npm run build` in the project root");
-    console.warn("   (the agent still works; just won't serve the app over the tunnel)");
+  if (!HAS_APP) {
+    console.log("ℹ  App bundle not found — QR codes will open the hosted deck");
+    console.log(`   (${HOSTED_APP}) and connect back to this agent.`);
   }
+  // Self-served (bundled app): scan the agent's own origin, the app connects
+  // same-origin to /ws. Hosted fallback: open the deck with the WS endpoint in
+  // a #connect= param. LAN+hosted is intentionally skipped (an https page can't
+  // open an insecure ws:// to your LAN — mixed content).
   if (lan) {
-    const lanUrl = `http://${lan}:${PORT}/`;
-    console.log(`\n🛜  LAN (same WiFi):  ${lanUrl}`);
-    await printQR(lanUrl, "   Scan on the same network:");
+    if (HAS_APP) {
+      const lanUrl = `http://${lan}:${PORT}/`;
+      console.log(`\n🛜  LAN (same WiFi):  ${lanUrl}`);
+      await printQR(lanUrl, "   Scan on the same network:");
+    } else {
+      console.log(`\n🛜  LAN (same WiFi):  ws://${lan}:${PORT}/ws  (paste this in the app)`);
+    }
   }
 
   console.log("\n🌐  Opening public tunnel…");
   const tunnel = await openTunnel(PORT);
   if (tunnel) {
+    const wsUrl = tunnel.url.replace(/^https/, "wss") + "/ws";
+    const scan = HAS_APP
+      ? `${tunnel.url}/`
+      : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
     console.log(`✅  ${tunnel.provider}:  ${tunnel.url}/`);
-    await printQR(`${tunnel.url}/`, "   Scan from anywhere:");
+    await printQR(scan, "   Scan from anywhere:");
     const shutdown = () => {
       tunnel.close();
       process.exit(0);
