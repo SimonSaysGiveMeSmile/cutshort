@@ -1,0 +1,56 @@
+import { useEffect, useState } from "react";
+import { ConnectScreen } from "./components/ConnectScreen";
+import { ControllerScreen } from "./components/ControllerScreen";
+import { ThemeSheet } from "./components/ThemeSheet";
+import { connection, type ConnState } from "./lib/connection";
+import { loadTheme } from "./themes";
+import type { OS } from "./shortcuts";
+
+export default function App() {
+  const [screen, setScreen] = useState<"connect" | "deck">("connect");
+  const [state, setState] = useState<ConnState>(connection.state);
+  const [os, setOS] = useState<OS>(connection.os);
+  const [theme, setTheme] = useState(loadTheme());
+  const [showThemes, setShowThemes] = useState(false);
+
+  useEffect(() => {
+    const off = connection.onState(setState);
+    return () => {
+      off();
+    };
+  }, []);
+
+  function setOSBoth(next: OS) {
+    setOS(next);
+    connection.os = next;
+  }
+
+  return (
+    <>
+      <div className="backdrop" aria-hidden />
+      <div className="grain" aria-hidden />
+      <div className="app">
+        {screen === "connect" ? (
+          <ConnectScreen onConnected={() => setScreen("deck")} />
+        ) : (
+          <ControllerScreen
+            os={os}
+            setOS={setOSBoth}
+            state={state}
+            onOpenThemes={() => setShowThemes(true)}
+          />
+        )}
+      </div>
+      {showThemes && (
+        <ThemeSheet
+          current={theme}
+          onPick={(id) => {
+            setTheme(id);
+            setShowThemes(false);
+          }}
+          onClose={() => setShowThemes(false)}
+        />
+      )}
+    </>
+  );
+}
