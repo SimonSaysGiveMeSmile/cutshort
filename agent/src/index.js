@@ -21,6 +21,7 @@ import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
+import { ensureAccessibility } from "./macAccess.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Prefer a dist bundled inside the published package; fall back to the repo's
@@ -135,6 +136,9 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log("┌──────────────────────────────────────────────┐");
   console.log(`│  CutShort agent  ·  ${HOSTNAME} (${PLATFORM})`.padEnd(49) + "│");
   console.log("└──────────────────────────────────────────────┘");
+
+  // Get the Accessibility grant out of the way up front, naming the exact app.
+  await ensureAccessibility();
   if (!HAS_APP) {
     console.log("ℹ  App bundle not found — QR codes will open the hosted deck");
     console.log(`   (${HOSTED_APP}) and connect back to this agent.`);
