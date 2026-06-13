@@ -87,19 +87,49 @@ export const THEMES: Theme[] = [
 
 export const DEFAULT_THEME = "liquid-glass";
 
+export type Mode = "light" | "dark";
+
 export function loadTheme(): string {
   if (typeof localStorage === "undefined") return DEFAULT_THEME;
   const saved = localStorage.getItem("cutshort.theme");
   return THEMES.some((t) => t.id === saved) ? (saved as string) : DEFAULT_THEME;
 }
 
-export function applyTheme(id: string) {
-  document.documentElement.setAttribute("data-theme", id);
-  const t = THEMES.find((x) => x.id === id);
-  if (t) {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", t.dark ? "#06070a" : "#f2f4f8");
+/** The mode a theme ships in by default. */
+export function nativeMode(id: string): Mode {
+  return THEMES.find((t) => t.id === id)?.dark ? "dark" : "light";
+}
+
+/**
+ * Resolve the active mode: an explicit user choice wins; otherwise we follow
+ * the current theme's native mode. Returns null only before any theme is set.
+ */
+export function loadMode(themeId: string): Mode {
+  if (typeof localStorage === "undefined") return nativeMode(themeId);
+  const saved = localStorage.getItem("cutshort.mode") as Mode | null;
+  return saved === "light" || saved === "dark" ? saved : nativeMode(themeId);
+}
+
+function paintMeta(mode: Mode) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", mode === "dark" ? "#06070a" : "#f2f4f8");
+}
+
+export function applyMode(mode: Mode) {
+  document.documentElement.setAttribute("data-mode", mode);
+  paintMeta(mode);
+  try {
+    localStorage.setItem("cutshort.mode", mode);
+  } catch {
+    /* private mode */
   }
+}
+
+export function applyTheme(id: string, mode?: Mode) {
+  document.documentElement.setAttribute("data-theme", id);
+  const resolved = mode ?? loadMode(id);
+  document.documentElement.setAttribute("data-mode", resolved);
+  paintMeta(resolved);
   try {
     localStorage.setItem("cutshort.theme", id);
   } catch {

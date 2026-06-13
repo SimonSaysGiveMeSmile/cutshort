@@ -986,6 +986,240 @@ body {
   );
 }
 
+/* ============================================================= *
+ *  DARK / LIGHT MODE
+ *  Each theme ships a native mode (Theme.dark). These blocks define
+ *  the OPPOSITE mode so the sun/moon toggle has somewhere to go.
+ * ============================================================= */
+
+/* — light themes → dark variants — */
+[data-theme="liquid-glass"][data-mode="dark"] {
+  --bg: #0b1322;
+  --bg-2: #111c30;
+  --text: #e9f0fb;
+  --text-dim: #8da3c4;
+  --accent: #5b9bff;
+  --accent-2: #e0a06a;
+  --border: rgba(140, 170, 220, 0.16);
+  --key-bg: rgba(255, 255, 255, 0.06);
+  --key-bg-active: rgba(255, 255, 255, 0.14);
+  --key-border: rgba(255, 255, 255, 0.14);
+  --key-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --topbar-bg: rgba(11, 19, 34, 0.5);
+  --chip-bg: rgba(255, 255, 255, 0.07);
+}
+[data-theme="liquid-glass"][data-mode="dark"] .backdrop::before {
+  background: radial-gradient(38% 36% at 18% 12%, #1f3a6b 0, transparent 62%),
+    radial-gradient(42% 38% at 88% 22%, #5a3a22 0, transparent 62%),
+    radial-gradient(48% 44% at 62% 92%, #1d4a3e 0, transparent 62%);
+  opacity: 0.65;
+}
+
+[data-theme="minimal"][data-mode="dark"] {
+  --bg: #0c0c0b;
+  --bg-2: #141413;
+  --text: #f1f1ec;
+  --text-dim: #8a8a80;
+  --accent: #f1f1ec;
+  --accent-2: #e0654b;
+  --border: rgba(255, 255, 255, 0.14);
+  --key-bg: #161615;
+  --key-bg-active: #1e1e1c;
+  --key-border: rgba(255, 255, 255, 0.14);
+  --topbar-bg: rgba(12, 12, 11, 0.85);
+  --chip-bg: transparent;
+}
+
+[data-theme="clay"][data-mode="dark"] {
+  --bg: #2a2521;
+  --bg-2: #322c27;
+  --text: #f0e7dd;
+  --text-dim: #b3a392;
+  --accent: #ef8a60;
+  --accent-2: #94b083;
+  --border: rgba(255, 255, 255, 0.06);
+  --key-bg: #332d28;
+  --key-bg-active: #3b342e;
+  --key-border: rgba(255, 255, 255, 0.05);
+  --key-shadow: 8px 8px 18px rgba(0, 0, 0, 0.45),
+    -6px -6px 16px rgba(90, 80, 70, 0.35), inset 2px 2px 6px rgba(120, 108, 96, 0.3);
+  --topbar-bg: rgba(42, 37, 33, 0.7);
+  --chip-bg: #332d28;
+}
+[data-theme="clay"][data-mode="dark"] .key:active {
+  box-shadow: inset 6px 6px 14px rgba(0, 0, 0, 0.5),
+    inset -6px -6px 14px rgba(90, 80, 70, 0.35);
+}
+
+[data-theme="maxcolor"][data-mode="dark"] {
+  --bg: #100d06;
+  --bg-2: #181206;
+  --text: #fff8e0;
+  --text-dim: #bcae6a;
+  --accent: #ff3b1f;
+  --accent-2: #37a0ff;
+  --border: #fff8e0;
+  --key-bg: #1c1710;
+  --key-bg-active: #ff3b1f;
+  --key-border: #fff8e0;
+  --key-shadow: 5px 5px 0 #fff8e0;
+  --topbar-bg: #ff3b1f;
+  --chip-bg: #1c1710;
+}
+[data-theme="maxcolor"][data-mode="dark"] .key:active {
+  box-shadow: 1px 1px 0 #fff8e0;
+}
+[data-theme="maxcolor"][data-mode="dark"] .backdrop {
+  background: repeating-linear-gradient(45deg, #100d06, #100d06 28px, #16110a 28px, #16110a 56px);
+}
+
+[data-theme="brutalist"][data-mode="dark"] {
+  --bg: #0f0f0d;
+  --bg-2: #161614;
+  --text: #f5f3ea;
+  --text-dim: #a8a498;
+  --accent: #ffe600;
+  --accent-2: #4d7bff;
+  --border: #f5f3ea;
+  --key-bg: #161614;
+  --key-bg-active: #ffe600;
+  --key-border: #f5f3ea;
+  --topbar-bg: #000000;
+  --chip-bg: #161614;
+}
+[data-theme="brutalist"][data-mode="dark"] .key:active {
+  background: #ffe600;
+  color: #000;
+}
+
+/* — dark themes → light variants — */
+[data-theme="stardust"][data-mode="light"] {
+  --bg: #efeaf9;
+  --bg-2: #e6def5;
+  --text: #2a2350;
+  --text-dim: #6f6798;
+  --accent: #7a5fd8;
+  --accent-2: #2f9fd0;
+  --border: rgba(90, 70, 160, 0.16);
+  --key-bg: rgba(255, 255, 255, 0.55);
+  --key-bg-active: rgba(255, 255, 255, 0.8);
+  --key-border: rgba(255, 255, 255, 0.8);
+  --key-shadow: 0 8px 24px rgba(90, 70, 160, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --topbar-bg: rgba(239, 234, 249, 0.6);
+  --chip-bg: rgba(255, 255, 255, 0.55);
+  --grain: 0.22;
+}
+[data-theme="stardust"][data-mode="light"] .backdrop {
+  background: radial-gradient(60% 50% at 50% 0%, #d6c8f5 0, transparent 70%),
+    radial-gradient(50% 50% at 90% 80%, #c2e0f0 0, transparent 70%), #efeaf9;
+}
+[data-theme="stardust"][data-mode="light"] .backdrop::after {
+  opacity: 0.18;
+}
+
+[data-theme="siri"][data-mode="light"] {
+  --bg: #f4f1fb;
+  --bg-2: #ece7f7;
+  --text: #1c1633;
+  --text-dim: #6b6390;
+  --accent: #ff4f87;
+  --accent-2: #5b6fff;
+  --border: rgba(60, 40, 90, 0.12);
+  --key-bg: rgba(255, 255, 255, 0.5);
+  --key-bg-active: rgba(255, 255, 255, 0.82);
+  --key-border: rgba(255, 255, 255, 0.75);
+  --key-shadow: 0 8px 26px rgba(90, 70, 160, 0.14);
+  --topbar-bg: rgba(244, 241, 251, 0.5);
+  --chip-bg: rgba(255, 255, 255, 0.55);
+}
+[data-theme="siri"][data-mode="light"] .backdrop::before {
+  opacity: 0.5;
+  filter: blur(64px) saturate(1.05);
+}
+[data-theme="siri"][data-mode="light"] .backdrop::after {
+  opacity: 0.32;
+}
+
+[data-theme="neon"][data-mode="light"] {
+  --bg: #eef5f6;
+  --bg-2: #e2eef0;
+  --text: #053a42;
+  --text-dim: #3d8a96;
+  --accent: #0090a8;
+  --accent-2: #d61fa8;
+  --border: rgba(0, 144, 168, 0.3);
+  --key-bg: #ffffff;
+  --key-bg-active: #e8fbff;
+  --key-border: rgba(0, 144, 168, 0.4);
+  --key-shadow: 0 0 0 1px rgba(0, 144, 168, 0.12), 0 6px 16px rgba(0, 144, 168, 0.14);
+  --topbar-bg: rgba(238, 245, 246, 0.8);
+  --chip-bg: #ffffff;
+}
+[data-theme="neon"][data-mode="light"] .key-glyph {
+  text-shadow: none;
+}
+[data-theme="neon"][data-mode="light"] .key:active {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 16px rgba(0, 144, 168, 0.3);
+}
+[data-theme="neon"][data-mode="light"] .backdrop {
+  background: radial-gradient(70% 50% at 50% 110%, #cdeef2 0, transparent 70%), #eef5f6;
+}
+[data-theme="neon"][data-mode="light"] .backdrop::before {
+  background-image: linear-gradient(rgba(0, 144, 168, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 144, 168, 0.12) 1px, transparent 1px);
+}
+[data-theme="neon"][data-mode="light"] .brand .dot {
+  box-shadow: 0 0 10px rgba(0, 144, 168, 0.5);
+}
+
+[data-theme="aurora"][data-mode="light"] {
+  --bg: #eef4f1;
+  --bg-2: #e4efe9;
+  --text: #0e3b32;
+  --text-dim: #4f8276;
+  --accent: #13a37f;
+  --accent-2: #6a55d8;
+  --border: rgba(20, 120, 100, 0.16);
+  --key-bg: rgba(255, 255, 255, 0.55);
+  --key-bg-active: rgba(255, 255, 255, 0.82);
+  --key-border: rgba(255, 255, 255, 0.8);
+  --key-shadow: 0 8px 24px rgba(20, 90, 80, 0.12);
+  --topbar-bg: rgba(238, 244, 241, 0.6);
+  --chip-bg: rgba(255, 255, 255, 0.55);
+}
+[data-theme="aurora"][data-mode="light"] .backdrop::before {
+  opacity: 0.4;
+  filter: blur(50px);
+}
+
+[data-theme="terminal"][data-mode="light"] {
+  --bg: #e9efe4;
+  --bg-2: #dde7d6;
+  --text: #0c5a30;
+  --text-dim: #4f8a63;
+  --accent: #0a7a3e;
+  --accent-2: #3a8a00;
+  --border: rgba(12, 90, 48, 0.25);
+  --key-bg: rgba(12, 90, 48, 0.04);
+  --key-bg-active: rgba(12, 90, 48, 0.12);
+  --key-border: rgba(12, 90, 48, 0.3);
+  --key-shadow: inset 0 0 12px rgba(12, 90, 48, 0.06);
+  --topbar-bg: rgba(233, 239, 228, 0.85);
+  --chip-bg: rgba(12, 90, 48, 0.05);
+}
+[data-theme="terminal"][data-mode="light"] * {
+  text-shadow: none;
+}
+[data-theme="terminal"][data-mode="light"] .backdrop::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(12, 90, 48, 0.05) 0,
+    rgba(12, 90, 48, 0.05) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
 /* reduce motion */
 @media (prefers-reduced-motion: reduce) {
   * {

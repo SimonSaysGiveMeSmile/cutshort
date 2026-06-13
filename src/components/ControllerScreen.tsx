@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Palette, Command as CommandIcon } from "lucide-react";
+import { Palette, Command as CommandIcon, Sun, Moon } from "lucide-react";
 import { ShortcutButton } from "./ShortcutButton";
 import { Icon } from "./Icon";
+import type { Mode } from "../themes";
 import {
   CATEGORIES,
   SHORTCUTS,
@@ -17,10 +18,19 @@ interface Props {
   os: OS;
   setOS: (os: OS) => void;
   state: ConnState;
+  mode: Mode;
+  onToggleMode: () => void;
   onOpenThemes: () => void;
 }
 
-export function ControllerScreen({ os, setOS, state, onOpenThemes }: Props) {
+export function ControllerScreen({
+  os,
+  setOS,
+  state,
+  mode,
+  onToggleMode,
+  onOpenThemes,
+}: Props) {
   const [cat, setCat] = useState<CategoryId>("edit");
   const [toast, setToast] = useState<string | null>(null);
 
@@ -47,6 +57,17 @@ export function ControllerScreen({ os, setOS, state, onOpenThemes }: Props) {
           <span className="led" />
           {state === "live" ? connection.host : state === "demo" ? "Demo" : "Off"}
         </span>
+        <button
+          className="icon-btn"
+          onClick={onToggleMode}
+          aria-label={mode === "dark" ? "Switch to light" : "Switch to dark"}
+        >
+          {mode === "dark" ? (
+            <Sun size={18} strokeWidth={1.7} />
+          ) : (
+            <Moon size={18} strokeWidth={1.7} />
+          )}
+        </button>
         <button className="icon-btn" onClick={onOpenThemes} aria-label="Change skin">
           <Palette size={18} strokeWidth={1.7} />
         </button>

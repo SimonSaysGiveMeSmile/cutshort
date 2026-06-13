@@ -3,7 +3,7 @@ import { ConnectScreen } from "./components/ConnectScreen";
 import { ControllerScreen } from "./components/ControllerScreen";
 import { ThemeSheet } from "./components/ThemeSheet";
 import { connection, type ConnState } from "./lib/connection";
-import { loadTheme } from "./themes";
+import { applyMode, loadMode, loadTheme, type Mode } from "./themes";
 import type { OS } from "./shortcuts";
 
 export default function App() {
@@ -11,6 +11,7 @@ export default function App() {
   const [state, setState] = useState<ConnState>(connection.state);
   const [os, setOS] = useState<OS>(connection.os);
   const [theme, setTheme] = useState(loadTheme());
+  const [mode, setMode] = useState<Mode>(loadMode(theme));
   const [showThemes, setShowThemes] = useState(false);
 
   useEffect(() => {
@@ -25,6 +26,12 @@ export default function App() {
     connection.os = next;
   }
 
+  function toggleMode() {
+    const next: Mode = mode === "dark" ? "light" : "dark";
+    setMode(next);
+    applyMode(next);
+  }
+
   return (
     <>
       <div className="backdrop" aria-hidden />
@@ -37,6 +44,8 @@ export default function App() {
             os={os}
             setOS={setOSBoth}
             state={state}
+            mode={mode}
+            onToggleMode={toggleMode}
             onOpenThemes={() => setShowThemes(true)}
           />
         )}
@@ -46,6 +55,7 @@ export default function App() {
           current={theme}
           onPick={(id) => {
             setTheme(id);
+            setMode(loadMode(id));
             setShowThemes(false);
           }}
           onClose={() => setShowThemes(false)}
