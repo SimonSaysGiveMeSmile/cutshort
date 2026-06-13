@@ -2,6 +2,9 @@
 // keeps the bundle tree-shaken — no 5,000-icon blob. Emoji are deliberately
 // banned from the UI: a single consistent stroke icon family is what makes the
 // deck read as designed rather than assembled.
+//
+// The MAP doubles as the palette the custom-shortcut editor picks from, so add
+// an icon here once and it's available everywhere.
 import {
   Copy,
   Scissors,
@@ -33,6 +36,35 @@ import {
   Globe,
   Monitor,
   Code,
+  // — extra palette for custom shortcuts —
+  Play,
+  Pause,
+  SkipForward,
+  SkipBack,
+  Volume2,
+  VolumeX,
+  Mic,
+  Star,
+  Bookmark,
+  Folder,
+  Download,
+  Upload,
+  Trash2,
+  Settings,
+  Lock,
+  Zap,
+  Bell,
+  Mail,
+  Image,
+  GitBranch,
+  Bug,
+  Bot,
+  Crop,
+  Layers,
+  PanelLeft,
+  SplitSquareHorizontal,
+  Indent,
+  Hash,
   Square,
   type LucideIcon,
 } from "lucide-react";
@@ -68,7 +100,38 @@ const MAP: Record<string, LucideIcon> = {
   Globe,
   Monitor,
   Code,
+  Play,
+  Pause,
+  SkipForward,
+  SkipBack,
+  Volume2,
+  VolumeX,
+  Mic,
+  Star,
+  Bookmark,
+  Folder,
+  Download,
+  Upload,
+  Trash2,
+  Settings,
+  Lock,
+  Zap,
+  Bell,
+  Mail,
+  Image,
+  GitBranch,
+  Bug,
+  Bot,
+  Crop,
+  Layers,
+  PanelLeft,
+  SplitSquareHorizontal,
+  Indent,
+  Hash,
 };
+
+/** Every icon name available to the picker. */
+export const ICON_NAMES = Object.keys(MAP);
 
 export function Icon({
   name,

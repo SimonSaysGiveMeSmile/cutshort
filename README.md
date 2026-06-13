@@ -75,14 +75,17 @@ icon to flip light/dark — every skin ships both modes. Both persist to
 
 ## Customizing shortcuts (roadmap)
 
-- **Now:** the deck is data-driven from `src/shortcuts.ts` — add/edit entries
-  there. `MOD` resolves to ⌘/Ctrl; use explicit `mac`/`win` overrides for combos
-  that genuinely diverge (Redo, DevTools, Screenshot, Quit…).
+- **In the app now:** tap the **sliders** icon to open the deck editor — add
+  your own shortcuts (label + icon from the Lucide palette + modifier chips +
+  key, with a live combo preview), hide built-ins you don't use, and restore
+  them later. Custom shortcuts + hidden built-ins persist to `localStorage`
+  (`src/lib/shortcutStore.ts`). `MOD` resolves to ⌘/Ctrl, `SUPER` to ⌘/Win.
+- **Defaults** live in `src/shortcuts.ts`; the deck renders from the merged
+  store, not the static list.
 - **Next (desktop web build):** an **embedded agent** that lets you describe a
-  shortcut in natural language and it wires up the combo by composing the
-  **existing components** (`ShortcutButton`, the combo model) rather than
-  generating new UI on the fly. The agent edits the `Shortcut[]` data, not the
-  render tree.
+  shortcut in natural language and wires up the combo by composing the
+  **existing components** (the editor + `Shortcut` data model) rather than
+  generating new UI on the fly — it calls the same `addCustom()` the editor does.
 
 ## Develop
 

@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Palette, Command as CommandIcon, Sun, Moon } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
+import { Palette, Command as CommandIcon, Sun, Moon, SlidersHorizontal } from "lucide-react";
 import { ShortcutButton } from "./ShortcutButton";
 import { Icon } from "./Icon";
+import { EditSheet } from "./EditSheet";
+import { getShortcuts, subscribe } from "../lib/shortcutStore";
 import type { Mode } from "../themes";
 import {
   CATEGORIES,
-  SHORTCUTS,
   comboLabel,
   resolveCombo,
   type CategoryId,
@@ -33,6 +34,8 @@ export function ControllerScreen({
 }: Props) {
   const [cat, setCat] = useState<CategoryId>("edit");
   const [toast, setToast] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const shortcuts = useSyncExternalStore(subscribe, getShortcuts);
 
   function fire(s: Shortcut) {
     connection.os = os;
@@ -43,7 +46,7 @@ export function ControllerScreen({
     (fire as any)._t = window.setTimeout(() => setToast(null), 1100);
   }
 
-  const keys = SHORTCUTS.filter((s) => s.category === cat);
+  const keys = shortcuts.filter((s) => s.category === cat);
 
   return (
     <>
@@ -74,6 +77,13 @@ export function ControllerScreen({
         </button>
         <button className="icon-btn" onClick={onOpenThemes} aria-label="Change skin">
           <Palette size={18} strokeWidth={1.7} />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => setEditing(true)}
+          aria-label="Customize deck"
+        >
+          <SlidersHorizontal size={18} strokeWidth={1.7} />
         </button>
       </div>
 
@@ -111,6 +121,8 @@ export function ControllerScreen({
           {toast}
         </div>
       )}
+
+      {editing && <EditSheet os={os} category={cat} onClose={() => setEditing(false)} />}
     </>
   );
 }
