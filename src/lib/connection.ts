@@ -1,19 +1,17 @@
 // Transport layer
 // ----------------
-// CutShort is transport-agnostic on purpose: the phone needs to get a combo to
-// the desktop agent, and which pipe wins (LAN WebSocket, Cloudflare tunnel,
-// Web Bluetooth) is to be decided by real-world latency tests. So we define a
-// single `Transport` interface and ship three implementations behind it. The
-// UI only ever talks to `Connection`.
+// The phone needs to get a combo to the desktop agent. Which pipe wins (LAN
+// WebSocket, Cloudflare tunnel, Web Bluetooth) is decided by real latency, so
+// everything sits behind one `Transport` interface. There is no demo path:
+// connecting means a real agent is on the other end injecting real keystrokes.
 //
-// Wire protocol (mirrors soa-web's JSON-over-WS framing, swapping PTY for keys):
-//   { v:1, t:"key",  d:{ mods:[...], key, os } }
-//   { v:1, t:"ping" }                              -> { v:1, t:"pong" }
-//   server -> client: { v:1, t:"hello", d:{ host, os } } | { v:1, t:"ack" }
+// Wire protocol (matches agent/src/index.js):
+//   client -> { v:1, t:"key",  d:{ mods, key, os } } | { v:1, t:"ping" }
+//   server -> { v:1, t:"hello", d:{ host, os, version } } | "ack" | "pong" | "error"
 
 import type { Combo, OS } from "../shortcuts";
 
-export type ConnState = "idle" | "connecting" | "live" | "demo" | "error";
+export type ConnState = "idle" | "connecting" | "live" | "error";
 
 export interface KeyFrame {
   v: 1;
@@ -21,31 +19,38 @@ export interface KeyFrame {
   d: { mods: string[]; key: string; os: OS };
 }
 
+type ServerFrame =
+  | { v: 1; t: "hello"; d: { host: string; os: OS; version: string } }
+  | { v: 1; t: "ack"; d: { combo: string } }
+  | { v: 1; t: "pong" }
+  | { v: 1; t: "error"; d: { message: string } };
+
 export interface Transport {
-  readonly kind: "lan" | "tunnel" | "bluetooth" | "demo";
+  readonly kind: "lan" | "tunnel" | "bluetooth";
   connect(): Promise<void>;
   send(frame: KeyFrame): void;
   close(): void;
+  onFrame?: (f: ServerFrame) => void;
 }
 
-/** Parse a pairing URL/string scanned from the desktop QR. */
 export interface Pairing {
-  url: string; // ws(s):// or https:// endpoint
-  host?: string; // friendly machine name
+  url: string; // ws(s):// or http(s):// endpoint (we normalize to ws)
+  host?: string;
   os?: OS;
-  token?: string; // single-use pairing token (signed cookie handshake on server)
+  token?: string;
 }
 
+/** Parse a pairing URL/string (manual paste or cutshort:// deep link). */
 export function parsePairing(raw: string): Pairing | null {
   const text = raw.trim();
   if (!text) return null;
   try {
-    // Accept either a raw ws/http URL or a cutshort:// deep link.
     const u = new URL(text.replace(/^cutshort:\/\//, "https://"));
+    const wsUrl = text.startsWith("cutshort://")
+      ? text.replace(/^cutshort:\/\//, "wss://")
+      : toWs(text);
     return {
-      url: text.startsWith("cutshort://")
-        ? text.replace(/^cutshort:\/\//, "wss://")
-        : text,
+      url: wsUrl,
       host: u.searchParams.get("host") ?? u.hostname,
       os: (u.searchParams.get("os") as OS) ?? undefined,
       token: u.searchParams.get("t") ?? undefined,
@@ -55,9 +60,41 @@ export function parsePairing(raw: string): Pairing | null {
   }
 }
 
-/** WebSocket transport — works over LAN and equally over a Cloudflare tunnel. */
+function toWs(url: string): string {
+  // Normalize an http(s):// origin to its ws(s):// /ws endpoint.
+  const u = new URL(url);
+  const proto = u.protocol === "https:" ? "wss:" : "ws:";
+  const pathHasWs = u.pathname.endsWith("/ws");
+  return `${proto}//${u.host}${pathHasWs ? u.pathname : "/ws"}`;
+}
+
+/**
+ * Auto-detect the agent endpoint:
+ *   1. `#connect=<url>` hash (set when scanning the agent's QR into the hosted app)
+ *   2. served BY the agent itself (any origin that isn't the Vercel host or the
+ *      Vite dev server) → same-origin /ws
+ * Returns null when there's nothing to auto-connect to (show the connect screen).
+ */
+export function detectAgent(): Pairing | null {
+  if (typeof location === "undefined") return null;
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const c = hash.get("connect");
+  if (c) return parsePairing(c);
+
+  const host = location.host;
+  const isHosted = /(\.vercel\.app$)|(cutshort\.online$)/.test(host);
+  const isViteDev = /^localhost:5173$|^127\.0\.0\.1:5173$/.test(host);
+  if (!isHosted && !isViteDev && host) {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    return { url: `${proto}//${host}/ws`, host: location.hostname };
+  }
+  return null;
+}
+
+/** WebSocket transport — identical code path for LAN and tunnel. */
 class WsTransport implements Transport {
   readonly kind: "lan" | "tunnel";
+  onFrame?: (f: ServerFrame) => void;
   private ws: WebSocket | null = null;
   private url: string;
 
@@ -68,12 +105,11 @@ class WsTransport implements Transport {
 
   connect() {
     return new Promise<void>((resolve, reject) => {
-      const wsUrl = this.url.replace(/^http/, "ws");
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(this.url);
       const timer = setTimeout(() => {
         ws.close();
         reject(new Error("timeout"));
-      }, 4000);
+      }, 5000);
       ws.onopen = () => {
         clearTimeout(timer);
         this.ws = ws;
@@ -83,11 +119,18 @@ class WsTransport implements Transport {
         clearTimeout(timer);
         reject(new Error("ws error"));
       };
+      ws.onmessage = (ev) => {
+        try {
+          this.onFrame?.(JSON.parse(ev.data));
+        } catch {
+          /* ignore non-JSON */
+        }
+      };
     });
   }
 
   send(frame: KeyFrame) {
-    this.ws?.send(JSON.stringify(frame));
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(frame));
   }
 
   close() {
@@ -96,17 +139,11 @@ class WsTransport implements Transport {
   }
 }
 
-/**
- * Web Bluetooth transport — a supplementary/offline path. The desktop agent
- * exposes a GATT service with a writable "combo" characteristic; we serialize
- * the frame to bytes and write it. Guarded behind feature detection.
- */
+/** Web Bluetooth transport — a supplementary/offline path (GATT write). */
 class BluetoothTransport implements Transport {
   readonly kind = "bluetooth" as const;
-  // CutShort GATT UUIDs (placeholder namespace — finalize with the agent build).
   private static SERVICE = "0000c45b-0000-1000-8000-00805f9b34fb";
   private static CHAR = "0000c45c-0000-1000-8000-00805f9b34fb";
-  // Web Bluetooth types aren't in the default lib.dom; keep it loose.
   private char: { writeValue(v: BufferSource): Promise<void> } | null = null;
 
   static supported() {
@@ -114,18 +151,17 @@ class BluetoothTransport implements Transport {
   }
 
   async connect() {
-    // @ts-expect-error - navigator.bluetooth typing is optional lib.dom
+    // @ts-expect-error - navigator.bluetooth is not in default lib.dom types
     const device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [BluetoothTransport.SERVICE] }],
     });
-    const server = await device.gatt!.connect();
+    const server = await device.gatt.connect();
     const svc = await server.getPrimaryService(BluetoothTransport.SERVICE);
     this.char = await svc.getCharacteristic(BluetoothTransport.CHAR);
   }
 
   send(frame: KeyFrame) {
-    if (!this.char) return;
-    this.char.writeValue(new TextEncoder().encode(JSON.stringify(frame)));
+    this.char?.writeValue(new TextEncoder().encode(JSON.stringify(frame)));
   }
 
   close() {
@@ -133,24 +169,12 @@ class BluetoothTransport implements Transport {
   }
 }
 
-/** Demo transport — no backend. Logs frames so the UI is fully usable. */
-class DemoTransport implements Transport {
-  readonly kind = "demo" as const;
-  connect() {
-    return Promise.resolve();
-  }
-  send(frame: KeyFrame) {
-    // eslint-disable-next-line no-console
-    console.info("[cutshort demo] would fire →", frame.d);
-  }
-  close() {}
-}
-
 export class Connection {
   state: ConnState = "idle";
-  transport: Transport = new DemoTransport();
-  host = "Demo Machine";
+  transport: Transport | null = null;
+  host = "";
   os: OS = "mac";
+  lastError = "";
   private listeners = new Set<(s: ConnState) => void>();
 
   onState(fn: (s: ConnState) => void) {
@@ -162,27 +186,36 @@ export class Connection {
     this.listeners.forEach((l) => l(s));
   }
 
-  /** Try LAN/tunnel WS; fall back to demo so the deck always works. */
-  async pair(p: Pairing) {
+  bluetoothSupported() {
+    return BluetoothTransport.supported();
+  }
+
+  /** Connect to a real agent over WS. Throws/sets error on failure. */
+  async pair(p: Pairing): Promise<boolean> {
     this.set("connecting");
     this.host = p.host ?? "Machine";
     if (p.os) this.os = p.os;
     const isLan = /\.local|192\.168\.|10\.|127\.0\.0\.1|localhost/.test(p.url);
     const t = new WsTransport(p.url, isLan ? "lan" : "tunnel");
+    t.onFrame = (f) => this.onServerFrame(f);
     try {
       await t.connect();
       this.transport = t;
       this.set("live");
-    } catch {
-      this.transport = new DemoTransport();
-      this.set("demo");
+      return true;
+    } catch (e) {
+      this.lastError = (e as Error).message;
+      this.transport = null;
+      this.set("error");
+      return false;
     }
   }
 
-  async pairBluetooth() {
+  async pairBluetooth(): Promise<boolean> {
     if (!BluetoothTransport.supported()) {
+      this.lastError = "Web Bluetooth not supported on this device";
       this.set("error");
-      return;
+      return false;
     }
     this.set("connecting");
     const t = new BluetoothTransport();
@@ -191,29 +224,36 @@ export class Connection {
       this.transport = t;
       this.host = "BLE Agent";
       this.set("live");
-    } catch {
+      return true;
+    } catch (e) {
+      this.lastError = (e as Error).message;
       this.set("error");
+      return false;
     }
   }
 
-  /** Enter the deck without a backend. */
-  demo(os: OS = "mac") {
-    this.transport = new DemoTransport();
-    this.os = os;
-    this.host = os === "mac" ? "Demo Mac" : "Demo PC";
-    this.set("demo");
+  private onServerFrame(f: ServerFrame) {
+    if (f.t === "hello") {
+      this.host = f.d.host || this.host;
+      this.os = f.d.os || this.os;
+      // re-emit so the UI refreshes the machine name
+      this.set(this.state);
+    }
   }
 
-  fire(combo: Combo) {
+  fire(combo: Combo): boolean {
+    if (!this.transport || this.state !== "live") return false;
     this.transport.send({
       v: 1,
       t: "key",
       d: { mods: combo.mods, key: combo.key, os: this.os },
     });
+    return true;
   }
 
   close() {
-    this.transport.close();
+    this.transport?.close();
+    this.transport = null;
     this.set("idle");
   }
 }

@@ -27,29 +27,31 @@ you're driving (⌘ on macOS, Ctrl on Windows) chosen automatically.
   ────────────────────                    ──────────────────────────────
 ```
 
-1. **Desktop agent** (separate package, `cutshort-agent`) runs a tiny WS server,
-   injects OS keystrokes via [nut.js](https://nutjs.dev) (cross-platform), and
-   brings up a Cloudflare Quick Tunnel so the phone can reach it from anywhere —
-   exactly the pattern `soa-web` uses for PTYs. It prints a QR with the pairing
-   URL + single-use token.
-2. **Phone** opens `cutshort.online`, scans the QR, and connects. The deck sends
-   `{ v:1, t:"key", d:{ mods, key, os } }` frames; the agent replays them as real
-   key events.
+1. **Desktop agent** ([`agent/`](agent/), package `cutshort-agent`) runs a WS
+   server, serves the built phone app, injects OS keystrokes via
+   [nut.js](https://nutjs.dev) (cross-platform), and brings up a Cloudflare Quick
+   Tunnel so the phone can reach it from anywhere — the pattern `soa-web` uses
+   for PTYs. It prints a QR of the connect URL. Start it with `npx cutshort-agent`.
+2. **Phone** scans that QR. Because the QR opens the app already pointed at the
+   agent (same-origin over the tunnel, or via a `#connect=` param on the hosted
+   app), it **auto-connects** — no demo, no manual step. The deck then sends
+   `{ v:1, t:"key", d:{ mods, key, os } }` frames and the agent replays them as
+   real key events. You can also paste the agent's `ws://…` URL manually.
 
 ### Transport is pluggable — to be decided by test results
 
-`src/lib/connection.ts` defines one `Transport` interface with three backends, so
-we can A/B latency before committing:
+`src/lib/connection.ts` defines one `Transport` interface so we can A/B latency
+before committing:
 
-| Transport   | Path                                  | Status   |
-| ----------- | ------------------------------------- | -------- |
-| `lan`       | WebSocket over local WiFi (`*.local`) | primary  |
-| `tunnel`    | WebSocket over Cloudflare tunnel      | fallback |
+| Transport   | Path                                  | Status        |
+| ----------- | ------------------------------------- | ------------- |
+| `lan`       | WebSocket over local WiFi (`*.local`) | primary       |
+| `tunnel`    | WebSocket over Cloudflare tunnel      | fallback      |
 | `bluetooth` | Web Bluetooth GATT write (offline)    | supplementary |
-| `demo`      | logs frames, no backend               | dev/try-it |
 
-`Connection.pair()` tries WS and silently falls back to demo mode, so the UI is
-always usable — open it right now with **Try demo** on the connect screen.
+`detectAgent()` auto-resolves the endpoint from the scanned QR / serving origin;
+`Connection.pair()` opens the socket and surfaces a real error if the agent
+isn't reachable (no silent demo mode).
 
 ## The 10 skins
 
@@ -67,7 +69,9 @@ rules in `src/index.css`. No JS rerender, no asset reload.
 9. **Brutalist** — raw Space Mono, zero rounding, yellow accent
 10. **Terminal** — phosphor-green CRT with scanlines and a blinking cursor
 
-Tap **✦ Skin** in the top bar to switch; the choice persists to `localStorage`.
+Tap the **palette** icon in the top bar to switch skins, and the **sun/moon**
+icon to flip light/dark — every skin ships both modes. Both persist to
+`localStorage`.
 
 ## Customizing shortcuts (roadmap)
 
@@ -83,14 +87,18 @@ Tap **✦ Skin** in the top bar to switch; the choice persists to `localStorage`
 ## Develop
 
 ```bash
+# phone app
 npm install
 npm run dev        # http://localhost:5173 (open on your phone via LAN IP)
 npm run build      # type-check + production build to dist/
-npm run preview    # serve the build
+
+# desktop agent (after the build above, so it can serve ../dist)
+cd agent && npm install && npm start    # prints LAN + tunnel QR codes
 ```
 
-Stack: **React + TypeScript + Tailwind v4 + Vite**. Mobile-first; PWA meta in
-`index.html`.
+Stack: **React + TypeScript + Tailwind v4 + Vite** (phone) · **Node + ws +
+nut.js + qrcode** (agent). Mobile-first; PWA meta in `index.html`. See
+[`agent/README.md`](agent/README.md) for accessibility permissions.
 
 ## Deploy (Vercel — Hireal team scope)
 
@@ -120,8 +128,14 @@ src/
   index.css               base layer + all 10 themes
   lib/connection.ts       pluggable transport (lan/tunnel/bluetooth/demo)
   components/
-    ConnectScreen.tsx     QR pairing + manual URL + demo entry
-    ControllerScreen.tsx  top bar, OS switch, categories, the deck
+    ConnectScreen.tsx     agent command + manual URL + Bluetooth
+    ControllerScreen.tsx  top bar, OS switch, mode toggle, categories, deck
     ShortcutButton.tsx    a single key (ripple + haptic)
     ThemeSheet.tsx        skin picker bottom sheet
+    Icon.tsx              cohesive Lucide icon set (no emoji)
+
+agent/
+  src/index.js            WS server + static host + tunnel + terminal QR
+  src/keys.js             combo → nut.js keystroke injection
+  src/tunnel.js           Cloudflare Quick Tunnel (ngrok fallback)
 ```

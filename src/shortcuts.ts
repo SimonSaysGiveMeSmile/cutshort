@@ -7,8 +7,12 @@
 
 export type OS = "mac" | "win";
 
-/** OS-neutral modifier tokens. MOD = Cmd(mac)/Ctrl(win). */
-export type ModToken = "MOD" | "SHIFT" | "ALT" | "CTRL";
+/**
+ * OS-neutral modifier tokens.
+ *   MOD   = Cmd (mac) / Ctrl (win) — the everyday shortcut modifier.
+ *   SUPER = Cmd (mac) / Win key (win) — for OS-level combos (snip, search).
+ */
+export type ModToken = "MOD" | "SHIFT" | "ALT" | "CTRL" | "SUPER";
 
 export interface Combo {
   mods: ModToken[];
@@ -107,10 +111,10 @@ export const SHORTCUTS: Shortcut[] = [
   },
 
   // — System / Window —
-  { id: "search", label: "Spotlight", icon: "ScanSearch", category: "window", combo: { mods: ["MOD"], key: " " }, mac: { mods: ["MOD"], key: " " }, win: { mods: ["MOD"], key: "s" } },
+  { id: "search", label: "Spotlight", icon: "ScanSearch", category: "window", combo: { mods: ["MOD"], key: " " }, mac: { mods: ["MOD"], key: " " }, win: { mods: ["SUPER"], key: "s" } },
   { id: "switch", label: "Switch App", icon: "ArrowLeftRight", category: "window", combo: { mods: ["MOD"], key: "Tab" }, win: { mods: ["ALT"], key: "Tab" } },
   { id: "fullscreen", label: "Fullscreen", icon: "Maximize", category: "window", combo: { mods: ["MOD", "CTRL"], key: "f" }, win: { mods: [], key: "F11" } },
-  { id: "screenshot", label: "Screenshot", icon: "Camera", category: "window", combo: { mods: ["MOD", "SHIFT"], key: "4" }, win: { mods: ["MOD", "SHIFT"], key: "s" } },
+  { id: "screenshot", label: "Screenshot", icon: "Camera", category: "window", combo: { mods: ["MOD", "SHIFT"], key: "4" }, win: { mods: ["SUPER", "SHIFT"], key: "s" } },
   { id: "quit", label: "Quit App", icon: "Power", category: "window", combo: { mods: ["MOD"], key: "q" }, win: { mods: ["ALT"], key: "F4" } },
 
   // — Dev —
@@ -128,6 +132,7 @@ export function resolveCombo(s: Shortcut, os: OS): Combo {
 
 const MAC_GLYPHS: Record<string, string> = {
   MOD: "⌘",
+  SUPER: "⌘",
   SHIFT: "⇧",
   ALT: "⌥",
   CTRL: "⌃",
@@ -144,6 +149,7 @@ const MAC_GLYPHS: Record<string, string> = {
 
 const WIN_GLYPHS: Record<string, string> = {
   MOD: "Ctrl",
+  SUPER: "Win",
   SHIFT: "Shift",
   ALT: "Alt",
   CTRL: "Ctrl",

@@ -1,0 +1,22 @@
+{
+  "name": "cutshort-agent",
+  "version": "0.1.0",
+  "private": false,
+  "license": "GPL-3.0",
+  "description": "CutShort desktop agent — receives shortcut combos from the phone over WebSocket (LAN or Cloudflare tunnel) and injects them as real OS keystrokes on macOS/Windows/Linux.",
+  "type": "module",
+  "bin": {
+    "cutshort-agent": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@nut-tree-fork/nut-js": "^4.2.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  }
+}

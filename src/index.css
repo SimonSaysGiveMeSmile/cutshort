@@ -145,9 +145,15 @@ body {
   background: #18d67a;
   box-shadow: 0 0 8px #18d67a;
 }
-.status[data-live="demo"] .led {
+.status[data-live="connecting"] .led {
   background: #ffb020;
   box-shadow: 0 0 8px #ffb020;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* segmented OS switch */
@@ -395,6 +401,10 @@ body {
 }
 .btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid var(--key-border);
   background: var(--key-bg);
   color: var(--text);
@@ -406,6 +416,10 @@ body {
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.2s ease;
   box-shadow: var(--key-shadow);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .btn:active {
   transform: scale(0.96);
@@ -435,6 +449,99 @@ body {
 }
 .input::placeholder {
   color: var(--text-dim);
+}
+
+/* run-the-agent card */
+.run-card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--key-bg);
+  border: 1px solid var(--key-border);
+  box-shadow: var(--key-shadow);
+  text-align: left;
+}
+.run-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.run-cmd {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--text);
+  user-select: all;
+}
+.run-cmd::before {
+  content: "$ ";
+  opacity: 0.5;
+}
+.run-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.connect-or {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+.connect-form {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.input-wrap {
+  width: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-wrap svg {
+  position: absolute;
+  left: 14px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.input-wrap .input {
+  max-width: none;
+  padding-left: 42px;
+}
+.connect-err {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0654b;
+}
+.btn svg {
+  margin-right: -2px;
+}
+.spin {
+  animation: spin360 0.9s linear infinite;
+}
+@keyframes spin360 {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================================= *

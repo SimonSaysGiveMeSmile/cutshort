@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ConnectScreen } from "./components/ConnectScreen";
 import { ControllerScreen } from "./components/ControllerScreen";
 import { ThemeSheet } from "./components/ThemeSheet";
-import { connection, type ConnState } from "./lib/connection";
+import { connection, detectAgent, type ConnState } from "./lib/connection";
 import { applyMode, loadMode, loadTheme, type Mode } from "./themes";
 import type { OS } from "./shortcuts";
 
@@ -16,6 +16,16 @@ export default function App() {
 
   useEffect(() => {
     const off = connection.onState(setState);
+    // Auto-connect when launched from the agent's QR (or served by the agent).
+    const agent = detectAgent();
+    if (agent) {
+      connection.pair(agent).then((ok) => {
+        if (ok) {
+          setOS(connection.os);
+          setScreen("deck");
+        }
+      });
+    }
     return () => {
       off();
     };

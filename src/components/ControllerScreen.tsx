@@ -55,7 +55,11 @@ export function ControllerScreen({
         <span className="spacer" />
         <span className="status" data-live={state}>
           <span className="led" />
-          {state === "live" ? connection.host : state === "demo" ? "Demo" : "Off"}
+          {state === "live"
+            ? connection.host || "Connected"
+            : state === "connecting"
+              ? "Linking…"
+              : "Offline"}
         </span>
         <button
           className="icon-btn"
