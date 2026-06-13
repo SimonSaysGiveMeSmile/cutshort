@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Palette, Command as CommandIcon } from "lucide-react";
 import { ShortcutButton } from "./ShortcutButton";
+import { Icon } from "./Icon";
 import {
   CATEGORIES,
   SHORTCUTS,
@@ -45,23 +47,18 @@ export function ControllerScreen({ os, setOS, state, onOpenThemes }: Props) {
           <span className="led" />
           {state === "live" ? connection.host : state === "demo" ? "Demo" : "Off"}
         </span>
-        <button
-          className="seg"
-          onClick={onOpenThemes}
-          style={{ padding: "7px 12px", cursor: "pointer", fontWeight: 600, fontSize: 13 }}
-          aria-label="Change skin"
-        >
-          ✦ Skin
+        <button className="icon-btn" onClick={onOpenThemes} aria-label="Change skin">
+          <Palette size={18} strokeWidth={1.7} />
         </button>
       </div>
 
       <div className="cats">
         <div className="seg" style={{ marginRight: 6 }}>
           <button data-on={os === "mac"} onClick={() => setOS("mac")}>
-            􀣺 Mac
+            macOS
           </button>
           <button data-on={os === "win"} onClick={() => setOS("win")}>
-            ⊞ Win
+            Windows
           </button>
         </div>
         {CATEGORIES.map((c) => (
@@ -71,7 +68,7 @@ export function ControllerScreen({ os, setOS, state, onOpenThemes }: Props) {
             data-on={c.id === cat}
             onClick={() => setCat(c.id)}
           >
-            <span aria-hidden>{c.glyph}</span>
+            <Icon name={c.icon} size={15} strokeWidth={1.8} />
             {c.label}
           </button>
         ))}
@@ -83,7 +80,12 @@ export function ControllerScreen({ os, setOS, state, onOpenThemes }: Props) {
         ))}
       </div>
 
-      {toast && <div className="toast">⌨ {toast}</div>}
+      {toast && (
+        <div className="toast">
+          <CommandIcon size={14} strokeWidth={2.2} />
+          {toast}
+        </div>
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { comboLabel, resolveCombo, type OS, type Shortcut } from "../shortcuts";
+import { Icon } from "./Icon";
 
 interface Props {
   shortcut: Shortcut;
@@ -37,7 +38,7 @@ export function ShortcutButton({ shortcut, os, onFire }: Props) {
       aria-label={`${shortcut.label} (${comboLabel(combo, os)})`}
     >
       <span className="key-glyph" aria-hidden>
-        {shortcut.glyph}
+        <Icon name={shortcut.icon} size={26} />
       </span>
       <span className="key-label">{shortcut.label}</span>
       <span className="key-combo">{comboLabel(combo, os)}</span>

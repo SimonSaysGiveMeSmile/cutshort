@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/shortcuts.ts","./src/themes.ts","./src/components/connectscreen.tsx","./src/components/controllerscreen.tsx","./src/components/shortcutbutton.tsx","./src/components/themesheet.tsx","./src/lib/connection.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/shortcuts.ts","./src/themes.ts","./src/components/connectscreen.tsx","./src/components/controllerscreen.tsx","./src/components/icon.tsx","./src/components/shortcutbutton.tsx","./src/components/themesheet.tsx","./src/lib/connection.ts"],"version":"5.9.3"}

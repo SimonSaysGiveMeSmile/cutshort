@@ -25,8 +25,8 @@
   --topbar-bg: rgba(255, 255, 255, 0.55);
   --chip-bg: rgba(255, 255, 255, 0.6);
 
-  --font-display: "Sora", system-ui, sans-serif;
-  --font-body: "Geist", system-ui, sans-serif;
+  --font-display: "Hanken Grotesk", system-ui, sans-serif;
+  --font-body: "Hanken Grotesk", system-ui, sans-serif;
 
   --grain: 0;
 }
@@ -243,9 +243,32 @@ body {
   background: var(--key-bg-active);
 }
 .key-glyph {
-  font-size: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
-  font-weight: 700;
+  color: var(--accent);
+}
+.key-glyph svg {
+  display: block;
+}
+
+/* icon-only top-bar button */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.14s ease, background 0.2s ease;
+}
+.icon-btn:active {
+  transform: scale(0.92);
 }
 .key-label {
   font-size: 12.5px;
@@ -286,6 +309,9 @@ body {
   bottom: calc(28px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 18px;
   border-radius: 999px;
   background: var(--text);
@@ -508,14 +534,16 @@ body {
  *  THEME 1 — Liquid Glass (default-ish, but explicit)
  * ============================================================= */
 [data-theme="liquid-glass"] {
-  --bg: #eaf1fb;
-  --bg-2: #dde8f7;
+  --bg: #e9eef4;
+  --bg-2: #dde5ee;
   --text: #0c1830;
   --text-dim: #5a6b87;
-  --accent: #2f7bff;
-  --accent-2: #00d0c0;
+  --accent: #1f6feb;
+  --accent-2: #d98a4a;
   --border: rgba(20, 40, 80, 0.12);
   --radius: 24px;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Hanken Grotesk", system-ui, sans-serif;
   --key-bg: rgba(255, 255, 255, 0.45);
   --key-bg-active: rgba(255, 255, 255, 0.85);
   --key-border: rgba(255, 255, 255, 0.6);
@@ -532,11 +560,16 @@ body {
 }
 [data-theme="liquid-glass"] .backdrop::before {
   inset: -20%;
-  background: radial-gradient(40% 38% at 20% 15%, #8fc0ff 0%, transparent 60%),
-    radial-gradient(45% 40% at 85% 25%, #c8a8ff 0%, transparent 60%),
-    radial-gradient(50% 45% at 60% 90%, #9bf0e0 0%, transparent 60%);
-  filter: blur(20px);
-  animation: drift 18s ease-in-out infinite alternate;
+  background: radial-gradient(38% 36% at 18% 12%, #b6cdf0 0%, transparent 62%),
+    radial-gradient(42% 38% at 88% 22%, #f3d2ad 0%, transparent 62%),
+    radial-gradient(48% 44% at 62% 92%, #c4e3d8 0%, transparent 62%);
+  filter: blur(26px) saturate(1.05);
+  opacity: 0.9;
+  animation: drift 22s ease-in-out infinite alternate;
+}
+/* serif wordmark wants a touch more optical weight on glass */
+[data-theme="liquid-glass"] .brand {
+  letter-spacing: -0.01em;
 }
 @keyframes drift {
   to {
@@ -563,8 +596,14 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   --topbar-bg: rgba(16, 13, 36, 0.5);
   --chip-bg: rgba(40, 34, 72, 0.45);
-  --font-display: "Unbounded", system-ui, sans-serif;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: "Hanken Grotesk", system-ui, sans-serif;
   --grain: 0.4;
+}
+[data-theme="stardust"] .brand,
+[data-theme="stardust"] .connect h1 {
+  font-weight: 400;
+  letter-spacing: 0.005em;
 }
 [data-theme="stardust"] .key,
 [data-theme="stardust"] .topbar {
@@ -616,25 +655,28 @@ body {
   backdrop-filter: blur(20px) saturate(1.6);
   -webkit-backdrop-filter: blur(20px) saturate(1.6);
 }
+/* Restrained, intentional flow — three hues that belong together, not the
+   full rainbow. Two slow-drifting blobs read as "alive" without the
+   demo-reel conic spin that screams AI template. */
 [data-theme="siri"] .backdrop::before {
-  inset: -30%;
-  background: conic-gradient(
-    from 0deg,
-    #ff4f9a,
-    #ff9b4f,
-    #ffe14f,
-    #5bff9b,
-    #5b8cff,
-    #b15bff,
-    #ff4f9a
-  );
-  filter: blur(70px) saturate(1.4);
-  opacity: 0.85;
-  animation: spin 14s linear infinite;
+  inset: -35%;
+  background: radial-gradient(40% 42% at 30% 30%, #ff5a86 0%, transparent 60%),
+    radial-gradient(46% 46% at 72% 38%, #6a4bff 0%, transparent 62%),
+    radial-gradient(50% 50% at 50% 82%, #2bb9ff 0%, transparent 64%);
+  filter: blur(64px) saturate(1.25);
+  opacity: 0.8;
+  animation: meshflow 20s ease-in-out infinite alternate;
 }
-@keyframes spin {
+[data-theme="siri"] .backdrop::after {
+  inset: -35%;
+  background: radial-gradient(36% 38% at 70% 70%, #ff8f5a 0%, transparent 60%);
+  filter: blur(70px);
+  opacity: 0.5;
+  animation: meshflow 26s ease-in-out infinite alternate-reverse;
+}
+@keyframes meshflow {
   to {
-    transform: rotate(360deg);
+    transform: translate3d(-6%, 5%, 0) scale(1.18);
   }
 }
 [data-theme="siri"] .brand .dot {
@@ -660,7 +702,7 @@ body {
     0 0 18px rgba(0, 240, 255, 0.15), inset 0 0 16px rgba(0, 240, 255, 0.06);
   --topbar-bg: rgba(4, 6, 10, 0.7);
   --chip-bg: rgba(0, 240, 255, 0.06);
-  --font-display: "Orbitron", system-ui, sans-serif;
+  --font-display: "Chakra Petch", system-ui, sans-serif;
   --font-body: "JetBrains Mono", monospace;
 }
 [data-theme="neon"] .key:active {
@@ -707,8 +749,13 @@ body {
   --key-shadow: 5px 5px 0 #14110a;
   --topbar-bg: #ff3b1f;
   --chip-bg: #ffffff;
-  --font-display: "Archivo", system-ui, sans-serif;
+  --font-display: "Anton", system-ui, sans-serif;
   --font-body: "Archivo", system-ui, sans-serif;
+}
+[data-theme="maxcolor"] .brand,
+[data-theme="maxcolor"] .connect h1 {
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 [data-theme="maxcolor"] .key {
   border-width: 3px;
@@ -778,31 +825,31 @@ body {
  *  THEME 7 — Clay Soft (claymorphism)
  * ============================================================= */
 [data-theme="clay"] {
-  --bg: #eef0ff;
-  --bg-2: #e3e7ff;
-  --text: #44407a;
-  --text-dim: #9a96c8;
-  --accent: #8a7bff;
-  --accent-2: #ff9bc4;
-  --border: rgba(138, 123, 255, 0.12);
+  --bg: #efe7df;
+  --bg-2: #e7ddd2;
+  --text: #4a4038;
+  --text-dim: #a39482;
+  --accent: #e07a52;
+  --accent-2: #7e9b6f;
+  --border: rgba(160, 130, 100, 0.12);
   --radius: 30px;
-  --key-bg: #f6f7ff;
-  --key-bg-active: #eef0ff;
+  --key-bg: #f7f0e9;
+  --key-bg-active: #efe7df;
   --key-border: rgba(255, 255, 255, 0.9);
-  --key-shadow: 8px 8px 20px rgba(160, 165, 220, 0.55),
-    -8px -8px 20px rgba(255, 255, 255, 0.9),
+  --key-shadow: 8px 8px 20px rgba(190, 168, 145, 0.55),
+    -8px -8px 20px rgba(255, 252, 247, 0.95),
     inset 2px 2px 6px rgba(255, 255, 255, 0.6);
-  --topbar-bg: rgba(238, 240, 255, 0.7);
-  --chip-bg: #f6f7ff;
+  --topbar-bg: rgba(239, 231, 223, 0.7);
+  --chip-bg: #f7f0e9;
   --font-display: "Bricolage Grotesque", system-ui, sans-serif;
   --font-body: "DM Sans", system-ui, sans-serif;
 }
 [data-theme="clay"] .key:active {
-  box-shadow: inset 6px 6px 14px rgba(160, 165, 220, 0.6),
-    inset -6px -6px 14px rgba(255, 255, 255, 0.9);
+  box-shadow: inset 6px 6px 14px rgba(190, 168, 145, 0.6),
+    inset -6px -6px 14px rgba(255, 252, 247, 0.95);
 }
 [data-theme="clay"] .key-glyph {
-  filter: drop-shadow(2px 2px 2px rgba(160, 165, 220, 0.5));
+  filter: drop-shadow(2px 2px 2px rgba(190, 168, 145, 0.5));
 }
 
 /* ============================================================= *

@@ -19,7 +19,7 @@ export interface Combo {
 export interface Shortcut {
   id: string;
   label: string;
-  glyph: string; // a compact icon/emoji shown on the key
+  icon: string; // a Lucide icon name (see components/Icon.tsx)
   category: CategoryId;
   combo: Combo;
   /** Optional per-OS override when the combo genuinely differs. */
@@ -34,56 +34,56 @@ export type CategoryId = "edit" | "browser" | "window" | "dev";
 export interface Category {
   id: CategoryId;
   label: string;
-  glyph: string;
+  icon: string;
 }
 
 export const CATEGORIES: Category[] = [
-  { id: "edit", label: "Editing", glyph: "✏️" },
-  { id: "browser", label: "Browser", glyph: "🌐" },
-  { id: "window", label: "System", glyph: "🖥️" },
-  { id: "dev", label: "Dev", glyph: "⌥" },
+  { id: "edit", label: "Editing", icon: "SquarePen" },
+  { id: "browser", label: "Browser", icon: "Globe" },
+  { id: "window", label: "System", icon: "Monitor" },
+  { id: "dev", label: "Dev", icon: "Code" },
 ];
 
 export const SHORTCUTS: Shortcut[] = [
   // — Editing —
-  { id: "copy", label: "Copy", glyph: "⧉", category: "edit", combo: { mods: ["MOD"], key: "c" } },
-  { id: "cut", label: "Cut", glyph: "✂", category: "edit", combo: { mods: ["MOD"], key: "x" } },
-  { id: "paste", label: "Paste", glyph: "📋", category: "edit", combo: { mods: ["MOD"], key: "v" } },
-  { id: "selall", label: "Select All", glyph: "▦", category: "edit", combo: { mods: ["MOD"], key: "a" } },
-  { id: "undo", label: "Undo", glyph: "↶", category: "edit", combo: { mods: ["MOD"], key: "z" } },
+  { id: "copy", label: "Copy", icon: "Copy", category: "edit", combo: { mods: ["MOD"], key: "c" } },
+  { id: "cut", label: "Cut", icon: "Scissors", category: "edit", combo: { mods: ["MOD"], key: "x" } },
+  { id: "paste", label: "Paste", icon: "ClipboardPaste", category: "edit", combo: { mods: ["MOD"], key: "v" } },
+  { id: "selall", label: "Select All", icon: "SquareDashedMousePointer", category: "edit", combo: { mods: ["MOD"], key: "a" } },
+  { id: "undo", label: "Undo", icon: "Undo2", category: "edit", combo: { mods: ["MOD"], key: "z" } },
   {
     id: "redo",
     label: "Redo",
-    glyph: "↷",
+    icon: "Redo2",
     category: "edit",
     combo: { mods: ["MOD", "SHIFT"], key: "z" },
     win: { mods: ["MOD"], key: "y" },
   },
-  { id: "save", label: "Save", glyph: "💾", category: "edit", combo: { mods: ["MOD"], key: "s" } },
-  { id: "find", label: "Find", glyph: "🔍", category: "edit", combo: { mods: ["MOD"], key: "f" } },
+  { id: "save", label: "Save", icon: "Save", category: "edit", combo: { mods: ["MOD"], key: "s" } },
+  { id: "find", label: "Find", icon: "Search", category: "edit", combo: { mods: ["MOD"], key: "f" } },
 
   // — Browser —
-  { id: "reload", label: "Reload", glyph: "↻", category: "browser", combo: { mods: ["MOD"], key: "r" } },
+  { id: "reload", label: "Reload", icon: "RotateCw", category: "browser", combo: { mods: ["MOD"], key: "r" } },
   {
     id: "hardreload",
     label: "Hard Reload",
-    glyph: "⟳",
+    icon: "RefreshCw",
     category: "browser",
     combo: { mods: ["MOD", "SHIFT"], key: "r" },
   },
-  { id: "newtab", label: "New Tab", glyph: "＋", category: "browser", combo: { mods: ["MOD"], key: "t" } },
-  { id: "closetab", label: "Close Tab", glyph: "✕", category: "browser", combo: { mods: ["MOD"], key: "w" } },
+  { id: "newtab", label: "New Tab", icon: "SquarePlus", category: "browser", combo: { mods: ["MOD"], key: "t" } },
+  { id: "closetab", label: "Close Tab", icon: "SquareX", category: "browser", combo: { mods: ["MOD"], key: "w" } },
   {
     id: "reopen",
     label: "Reopen Tab",
-    glyph: "⎌",
+    icon: "RotateCcw",
     category: "browser",
     combo: { mods: ["MOD", "SHIFT"], key: "t" },
   },
   {
     id: "devtools",
     label: "DevTools",
-    glyph: "🛠",
+    icon: "Wrench",
     category: "browser",
     combo: { mods: ["MOD", "ALT"], key: "i" },
     win: { mods: ["MOD", "SHIFT"], key: "i" },
@@ -91,14 +91,14 @@ export const SHORTCUTS: Shortcut[] = [
   {
     id: "incognito",
     label: "Incognito",
-    glyph: "🕶",
+    icon: "Glasses",
     category: "browser",
     combo: { mods: ["MOD", "SHIFT"], key: "n" },
   },
   {
     id: "clearcache",
     label: "Clear Cache",
-    glyph: "🧹",
+    icon: "Eraser",
     category: "browser",
     // Mac Chrome devtools-less hard-clear varies; we send the broadly-safe
     // "open clear-browsing-data" combo. Refine per test results.
@@ -107,18 +107,18 @@ export const SHORTCUTS: Shortcut[] = [
   },
 
   // — System / Window —
-  { id: "search", label: "Spotlight", glyph: "🔦", category: "window", combo: { mods: ["MOD"], key: " " }, mac: { mods: ["MOD"], key: " " }, win: { mods: ["MOD"], key: "s" } },
-  { id: "switch", label: "Switch App", glyph: "⇄", category: "window", combo: { mods: ["MOD"], key: "Tab" }, win: { mods: ["ALT"], key: "Tab" } },
-  { id: "fullscreen", label: "Fullscreen", glyph: "⛶", category: "window", combo: { mods: ["MOD", "CTRL"], key: "f" }, win: { mods: [], key: "F11" } },
-  { id: "screenshot", label: "Screenshot", glyph: "📸", category: "window", combo: { mods: ["MOD", "SHIFT"], key: "4" }, win: { mods: ["MOD", "SHIFT"], key: "s" } },
-  { id: "quit", label: "Quit App", glyph: "⏻", category: "window", combo: { mods: ["MOD"], key: "q" }, win: { mods: ["ALT"], key: "F4" } },
+  { id: "search", label: "Spotlight", icon: "ScanSearch", category: "window", combo: { mods: ["MOD"], key: " " }, mac: { mods: ["MOD"], key: " " }, win: { mods: ["MOD"], key: "s" } },
+  { id: "switch", label: "Switch App", icon: "ArrowLeftRight", category: "window", combo: { mods: ["MOD"], key: "Tab" }, win: { mods: ["ALT"], key: "Tab" } },
+  { id: "fullscreen", label: "Fullscreen", icon: "Maximize", category: "window", combo: { mods: ["MOD", "CTRL"], key: "f" }, win: { mods: [], key: "F11" } },
+  { id: "screenshot", label: "Screenshot", icon: "Camera", category: "window", combo: { mods: ["MOD", "SHIFT"], key: "4" }, win: { mods: ["MOD", "SHIFT"], key: "s" } },
+  { id: "quit", label: "Quit App", icon: "Power", category: "window", combo: { mods: ["MOD"], key: "q" }, win: { mods: ["ALT"], key: "F4" } },
 
   // — Dev —
-  { id: "palette", label: "Cmd Palette", glyph: "⌘", category: "dev", combo: { mods: ["MOD", "SHIFT"], key: "p" } },
-  { id: "comment", label: "Comment", glyph: "//", category: "dev", combo: { mods: ["MOD"], key: "/" } },
-  { id: "format", label: "Format", glyph: "{ }", category: "dev", combo: { mods: ["MOD", "SHIFT"], key: "f" }, mac: { mods: ["MOD", "ALT"], key: "f" } },
-  { id: "terminal", label: "Terminal", glyph: "›_", category: "dev", combo: { mods: ["MOD"], key: "`" } },
-  { id: "multicursor", label: "Add Cursor", glyph: "❘❘", category: "dev", combo: { mods: ["MOD", "ALT"], key: "ArrowDown" }, repeatable: true },
+  { id: "palette", label: "Cmd Palette", icon: "Command", category: "dev", combo: { mods: ["MOD", "SHIFT"], key: "p" } },
+  { id: "comment", label: "Comment", icon: "MessageSquareCode", category: "dev", combo: { mods: ["MOD"], key: "/" } },
+  { id: "format", label: "Format", icon: "Braces", category: "dev", combo: { mods: ["MOD", "SHIFT"], key: "f" }, mac: { mods: ["MOD", "ALT"], key: "f" } },
+  { id: "terminal", label: "Terminal", icon: "SquareTerminal", category: "dev", combo: { mods: ["MOD"], key: "`" } },
+  { id: "multicursor", label: "Add Cursor", icon: "TextCursor", category: "dev", combo: { mods: ["MOD", "ALT"], key: "ArrowDown" }, repeatable: true },
 ];
 
 /** Resolve the OS-specific combo for a shortcut. */
