@@ -1,0 +1,8 @@
+# Vercel only builds the phone app (Vite → dist/). Keep everything else out of
+# the upload so deploys are lean and framework detection isn't confused.
+agent
+node_modules
+dist
+.vercel
+*.log
+.DS_Store
