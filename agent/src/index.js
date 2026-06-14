@@ -6,6 +6,12 @@
 // 2. Upgrades /ws and injects every combo it receives as a real keystroke.
 // 3. Opens a Cloudflare Quick Tunnel and prints a QR of the public URL.
 //
+// On macOS it first relaunches itself through ~/Applications/CutShort.app so the
+// Accessibility permission is attributed to a dedicated "CutShort" row instead
+// of a generic "Node". In that mode there's no terminal, so the pairing QR is
+// shown on a localhost page that opens in the browser. Opt out with
+// CUTSHORT_NO_APP=1 to keep the pure-terminal flow.
+//
 // Wire protocol (matches the web app's src/lib/connection.ts):
 //   client -> { v:1, t:"key",  d:{ mods:[...], key, os } }
 //          -> { v:1, t:"ping" }
@@ -16,14 +22,75 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { exec } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
-import { ensureAccessibility } from "./macAccess.js";
+import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
+import {
+  APP_NAME,
+  runningAsApp,
+  relaunchViaApp,
+  writePid,
+  clearPid,
+  stopRunning,
+} from "./appBundle.js";
+import { renderPairPage } from "./pairPage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const THIS_FILE = fileURLToPath(import.meta.url);
+
+const argVal = (flag) => {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+};
+
+// `cutshort-agent --stop` kills a backgrounded (app-mode) agent and exits.
+if (process.argv.includes("--stop")) {
+  const pid = stopRunning();
+  console.log(pid ? `Stopped ${APP_NAME} agent (pid ${pid}).` : `No running ${APP_NAME} agent found.`);
+  process.exit(0);
+}
+
+const AS_APP = runningAsApp();
+const PORT = Number(argVal("--port") || process.env.CUTSHORT_PORT || 8787);
+// On macOS, default to relaunching via the app bundle (for the named
+// Accessibility row). Skip when already in the app, when opted out, or off-mac.
+const USE_APP = process.platform === "darwin" && !AS_APP && process.env.CUTSHORT_NO_APP !== "1";
+
+// App mode has no terminal — tee console to a log file for debugging.
+if (AS_APP) {
+  try {
+    const stream = fs.createWriteStream(path.join(os.homedir(), ".cutshort-agent.log"), { flags: "a" });
+    const w = (...a) => stream.write(a.map(String).join(" ") + "\n");
+    console.log = w;
+    console.warn = w;
+    console.error = w;
+  } catch {
+    /* logging is best-effort */
+  }
+}
+
+// ── relaunch-as-app: become a throwaway launcher, then exit ─────────
+if (USE_APP) {
+  console.log("┌──────────────────────────────────────────────┐");
+  console.log(`│  ${APP_NAME} agent`.padEnd(49) + "│");
+  console.log("└──────────────────────────────────────────────┘");
+  console.log(`🚀  Launching ${APP_NAME}.app so macOS shows a dedicated “${APP_NAME}”`);
+  console.log("    row in Accessibility (instead of a generic “Node”)…");
+  const ok = relaunchViaApp(THIS_FILE, ["--port", String(PORT)]);
+  if (ok) {
+    console.log("\n📲  The pairing QR will open in your browser in a moment.");
+    console.log("    You can close this terminal window.");
+    console.log(`    • Stop the agent:         ${path.basename(process.argv[1] || "cutshort-agent")} --stop`);
+    console.log("    • Prefer the terminal:    CUTSHORT_NO_APP=1 cutshort-agent\n");
+    process.exit(0);
+  }
+  console.log("⚠  Couldn't launch the app bundle — continuing in terminal mode.\n");
+}
+
 // Prefer a dist bundled inside the published package; fall back to the repo's
 // sibling dist when running from a clone.
 const DIST = [
@@ -33,12 +100,15 @@ const DIST = [
 const HAS_APP = !!DIST;
 // When the app isn't bundled, point the QR at the hosted deck instead.
 const HOSTED_APP = process.env.CUTSHORT_APP || "https://cutshort.online";
-const PORT = Number(process.env.CUTSHORT_PORT || 8787);
 const HOSTNAME = os.hostname().replace(/\.local$/, "");
 const PLATFORM = process.platform === "darwin" ? "mac" : "win";
 const VERSION = "0.1.0";
 
-// ── static file server (serves the SPA) ───────────────────────────
+// Mutable runtime state shared with the HTTP handlers.
+let PAIR_HTML = null; // rendered once scan targets are known (app mode)
+let CURRENT_SHUTDOWN = () => process.exit(0);
+
+// ── static file server (serves the SPA + a few control routes) ─────
 const MIME = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -51,17 +121,40 @@ const MIME = {
 };
 
 function serveStatic(req, res) {
-  if (req.url === "/health" || req.url === "/api/ping") {
+  const url = (req.url || "/").split("?")[0];
+
+  if (url === "/health" || url === "/api/ping") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, host: HOSTNAME, os: PLATFORM, version: VERSION }));
     return;
   }
-  if (!HAS_APP) {
-    res.writeHead(200, { "content-type": "text/plain" });
-    res.end("CutShort agent is running. Scan the QR from the terminal to open the deck.");
+  if (req.method === "POST" && url === "/api/quit") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"ok":true}');
+    setTimeout(() => CURRENT_SHUTDOWN(), 150);
     return;
   }
-  let urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
+  if (req.method === "POST" && url === "/api/open-accessibility") {
+    openAccessibilityPane();
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+  if (url === "/pair") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(
+      PAIR_HTML ||
+        `<!doctype html><meta http-equiv="refresh" content="1"><body style="font-family:system-ui;background:#0a0b0e;color:#9aa3ad;padding:3rem;text-align:center">Starting ${APP_NAME}… this page will refresh.</body>`,
+    );
+    return;
+  }
+
+  if (!HAS_APP) {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("CutShort agent is running. Scan the QR from the terminal/browser to open the deck.");
+    return;
+  }
+  let urlPath = decodeURIComponent(url);
   if (urlPath === "/") urlPath = "/index.html";
   let filePath = path.join(DIST, urlPath);
   // SPA fallback: unknown non-asset routes -> index.html
@@ -132,51 +225,78 @@ async function printQR(url, label) {
 }
 
 server.listen(PORT, "0.0.0.0", async () => {
+  if (AS_APP) {
+    writePid();
+    // Open the pairing page right away; it shows "Starting…" and auto-refreshes
+    // to the QR once the tunnel resolves. (CUTSHORT_NO_OPEN suppresses all
+    // browser/Settings/keystroke side effects — for headless or test runs.)
+    if (!process.env.CUTSHORT_NO_OPEN) exec(`open "http://127.0.0.1:${PORT}/pair"`);
+  }
+
   const lan = lanIPs()[0];
   console.log("┌──────────────────────────────────────────────┐");
-  console.log(`│  CutShort agent  ·  ${HOSTNAME} (${PLATFORM})`.padEnd(49) + "│");
+  console.log(`│  ${APP_NAME} agent  ·  ${HOSTNAME} (${PLATFORM})`.padEnd(49) + "│");
   console.log("└──────────────────────────────────────────────┘");
 
-  // Get the Accessibility grant out of the way up front, naming the exact app.
-  await ensureAccessibility();
+  // Get the Accessibility grant out of the way up front. In app mode the row to
+  // enable is "CutShort"; otherwise it's the detected host terminal/IDE.
+  if (!process.env.CUTSHORT_NO_OPEN) {
+    await ensureAccessibility({ rowName: AS_APP ? APP_NAME : undefined });
+  }
   if (!HAS_APP) {
     console.log("ℹ  App bundle not found — QR codes will open the hosted deck");
     console.log(`   (${HOSTED_APP}) and connect back to this agent.`);
   }
-  // Self-served (bundled app): scan the agent's own origin, the app connects
-  // same-origin to /ws. Hosted fallback: open the deck with the WS endpoint in
-  // a #connect= param. LAN+hosted is intentionally skipped (an https page can't
-  // open an insecure ws:// to your LAN — mixed content).
+
+  // Build the list of scan targets. Self-served (bundled app): scan the agent's
+  // own origin, the app connects same-origin to /ws. Hosted fallback: open the
+  // deck with the WS endpoint in a #connect= param. LAN+hosted is intentionally
+  // skipped (an https page can't open an insecure ws:// to your LAN).
+  const entries = [];
   if (lan) {
-    if (HAS_APP) {
-      const lanUrl = `http://${lan}:${PORT}/`;
-      console.log(`\n🛜  LAN (same WiFi):  ${lanUrl}`);
-      await printQR(lanUrl, "   Scan on the same network:");
-    } else {
-      console.log(`\n🛜  LAN (same WiFi):  ws://${lan}:${PORT}/ws  (paste this in the app)`);
-    }
+    if (HAS_APP) entries.push({ label: "Same WiFi (LAN)", url: `http://${lan}:${PORT}/` });
+    else entries.push({ label: "Same WiFi — paste in app", url: `ws://${lan}:${PORT}/ws` });
   }
 
   console.log("\n🌐  Opening public tunnel…");
   const tunnel = await openTunnel(PORT);
   if (tunnel) {
     const wsUrl = tunnel.url.replace(/^https/, "wss") + "/ws";
-    const scan = HAS_APP
-      ? `${tunnel.url}/`
-      : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
-    console.log(`✅  ${tunnel.provider}:  ${tunnel.url}/`);
-    await printQR(scan, "   Scan from anywhere:");
-    const shutdown = () => {
+    const scan = HAS_APP ? `${tunnel.url}/` : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
+    entries.push({ label: `Anywhere (${tunnel.provider})`, url: scan });
+    CURRENT_SHUTDOWN = () => {
       tunnel.close();
+      clearPid();
       process.exit(0);
     };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
   } else {
+    CURRENT_SHUTDOWN = () => {
+      clearPid();
+      process.exit(0);
+    };
     console.log("⚠  No tunnel provider found. Install cloudflared for remote access:");
     console.log("     brew install cloudflared   (macOS)");
     console.log("     winget install cloudflare.cloudflared   (Windows)");
     console.log("   LAN access above still works on the same WiFi.");
   }
+  process.on("SIGINT", CURRENT_SHUTDOWN);
+  process.on("SIGTERM", CURRENT_SHUTDOWN);
+
+  if (AS_APP) {
+    // No terminal: render the pairing page (the already-open browser tab picks
+    // it up on its next refresh).
+    PAIR_HTML = await renderPairPage({ entries, appName: APP_NAME });
+    console.log("Pairing page ready at /pair");
+  } else {
+    // Terminal: print the QR(s) inline as before.
+    for (const e of entries) {
+      const where = e.label.startsWith("Anywhere")
+        ? "   Scan from anywhere:"
+        : "   Scan on the same network:";
+      if (e.url.startsWith("ws://")) console.log(`\n🛜  ${e.label}:  ${e.url}  (paste this in the app)`);
+      else await printQR(e.url, where);
+    }
+  }
+
   console.log("\nWaiting for a phone to connect…\n");
 });

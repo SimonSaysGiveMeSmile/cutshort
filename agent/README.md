@@ -19,20 +19,43 @@ On boot it:
 1. Serves the built phone app from `../dist` (so scanning the QR opens a working,
    already-paired deck — no Vercel needed).
 2. Opens a WebSocket server on `:8787` (override with `CUTSHORT_PORT`).
-3. Prints **two QR codes** in the terminal: one for the LAN URL (same WiFi) and
-   one for the Cloudflare tunnel URL (reachable anywhere). Scan either.
+3. Shows **two QR codes** — one for the LAN URL (same WiFi) and one for the
+   Cloudflare tunnel URL (reachable anywhere). Scan either.
 
 ```
 🛜  LAN (same WiFi):  http://192.168.x.x:8787/
 ✅  cloudflared:  https://something.trycloudflare.com/
 ```
 
+### macOS: runs as a "CutShort" app
+
+On macOS the agent relaunches itself through a generated
+`~/Applications/CutShort.app` so the **Accessibility permission is attributed to
+a dedicated “CutShort” row** instead of a generic “Node” (or your whole
+terminal). Because that detaches it from the terminal, the QR codes open on a
+**pairing page in your browser** (with a *Stop agent* button) rather than
+printing inline.
+
+```bash
+cutshort-agent              # → launches CutShort.app, opens the pairing page
+cutshort-agent --stop       # stop the backgrounded agent
+CUTSHORT_NO_APP=1 cutshort-agent   # opt out: stay in the terminal, QR inline
+CUTSHORT_NO_OPEN=1 ...             # don't open the browser/Settings (headless)
+```
+
+The bundle is ad-hoc code-signed and rebuilt automatically whenever your Node
+binary changes. With only ad-hoc signing the Accessibility grant resets after a
+Node upgrade (re-toggle the row once); a Developer ID signature would make it
+persist. On Windows/Linux none of this applies — the agent just runs.
+
 ## Permissions
 
 Injecting keystrokes needs OS-level accessibility access — grant it once:
 
 - **macOS:** System Settings → Privacy & Security → **Accessibility** → enable
-  your terminal (or the packaged app). The first keystroke triggers the prompt.
+  the **CutShort** row (the agent runs as `CutShort.app` — see above). The first
+  keystroke triggers the prompt; after enabling, restart the agent so the grant
+  takes effect. (With `CUTSHORT_NO_APP=1` you instead enable your terminal/IDE.)
 - **Windows:** runs as-is; run elevated only if you target an elevated app.
 - **Linux:** X11 works out of the box; Wayland needs `ydotool`/uinput.
 

@@ -84,9 +84,16 @@ async function registerInList() {
   }
 }
 
-export async function ensureAccessibility({ open = "auto" } = {}) {
+/** Open System Settings straight to the Accessibility pane. */
+export function openAccessibilityPane() {
+  exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+}
+
+// `rowName` lets the caller name the exact row to enable. In app mode that's the
+// bundle ("CutShort"); otherwise we detect the host terminal/IDE.
+export async function ensureAccessibility({ open = "auto", rowName } = {}) {
   if (process.platform !== "darwin") return; // win/linux: nothing to do
-  const app = hostAppName();
+  const app = rowName || hostAppName();
   await registerInList();
 
   console.log("\n🔐  macOS needs Accessibility access to send keystrokes.");
@@ -100,7 +107,7 @@ export async function ensureAccessibility({ open = "auto" } = {}) {
     (open === "auto" && !st.accessibilityOpened);
 
   if (shouldOpen) {
-    exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+    openAccessibilityPane();
     writeState({ ...st, accessibilityOpened: true });
     console.log("    ✦ Opened it for you — just flip the switch next to «" + app + "».");
   }
