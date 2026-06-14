@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { Palette, Command as CommandIcon, Sun, Moon, SlidersHorizontal } from "lucide-react";
+import { Palette, Command as CommandIcon, Sun, Moon, SlidersHorizontal, WifiOff } from "lucide-react";
 import { ShortcutButton } from "./ShortcutButton";
 import { Icon } from "./Icon";
 import { EditSheet } from "./EditSheet";
@@ -33,15 +33,21 @@ export function ControllerScreen({
   onOpenThemes,
 }: Props) {
   const [cat, setCat] = useState<CategoryId>("edit");
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
   const shortcuts = useSyncExternalStore(subscribe, getShortcuts);
 
   function fire(s: Shortcut) {
     connection.os = os;
     const combo = resolveCombo(s, os);
-    connection.fire(combo);
-    setToast(`${s.label} · ${comboLabel(combo, os)}`);
+    // Only confirm what actually went out — if the link is down the keystroke
+    // never reached the Mac, so don't fake a "fired" toast.
+    const sent = connection.fire(combo);
+    setToast(
+      sent
+        ? { text: `${s.label} · ${comboLabel(combo, os)}`, ok: true }
+        : { text: state === "connecting" ? "Reconnecting…" : "Not connected", ok: false },
+    );
     window.clearTimeout((fire as any)._t);
     (fire as any)._t = window.setTimeout(() => setToast(null), 1100);
   }
@@ -116,9 +122,13 @@ export function ControllerScreen({
       </div>
 
       {toast && (
-        <div className="toast">
-          <CommandIcon size={14} strokeWidth={2.2} />
-          {toast}
+        <div className="toast" data-ok={toast.ok}>
+          {toast.ok ? (
+            <CommandIcon size={14} strokeWidth={2.2} />
+          ) : (
+            <WifiOff size={14} strokeWidth={2.2} />
+          )}
+          {toast.text}
         </div>
       )}
 
