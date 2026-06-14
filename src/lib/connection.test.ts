@@ -95,6 +95,7 @@ class FakeWebSocket {
   url: string;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   sent: string[] = [];
   closed = false;
@@ -114,8 +115,17 @@ class FakeWebSocket {
   send(data: string) {
     this.sent.push(data);
   }
+  // Mirror the browser: close() also fires onclose (so we can prove an
+  // intentional close is NOT mistaken for a drop).
   close() {
     this.closed = true;
+    this.readyState = 3;
+    this.onclose?.();
+  }
+  /** Simulate the peer/agent going away while live. */
+  drop() {
+    this.readyState = 3;
+    this.onclose?.();
   }
 }
 
@@ -207,6 +217,42 @@ describe("Connection", () => {
     expect(c.fire({ mods: [], key: "x" })).toBe(true);
     c.close();
     expect(c.fire({ mods: [], key: "x" })).toBe(false);
+  });
+
+  it("surfaces an unexpected drop as an error so taps don't silently vanish", async () => {
+    const c = new Connection();
+    const seen: string[] = [];
+    c.onState((s) => seen.push(s));
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+    expect(c.state).toBe("live");
+
+    // Agent quits / Mac sleeps / tunnel idles out — the socket closes on its own.
+    FakeWebSocket.last!.drop();
+
+    expect(c.state).toBe("error");
+    expect(c.transport).toBeNull();
+    expect(c.lastError).toMatch(/lost/i);
+    expect(c.fire({ mods: [], key: "x" })).toBe(false);
+    expect(seen).toEqual(["connecting", "live", "error"]);
+  });
+
+  it("does not report an error when WE close the link (no false drop)", async () => {
+    const c = new Connection();
+    const seen: string[] = [];
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+    c.onState((s) => seen.push(s));
+    c.close(); // intentional teardown also fires the socket's onclose
+    expect(c.state).toBe("idle");
+    expect(seen).toEqual(["idle"]); // never went through "error"
+  });
+
+  it("ignores a late drop after the link is already closed (idempotent)", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+    const ws = FakeWebSocket.last!;
+    c.close();
+    expect(() => ws.drop()).not.toThrow();
+    expect(c.state).toBe("idle"); // a stray late close can't knock us off idle
   });
 
   it("sets error state and message when the socket fails", async () => {

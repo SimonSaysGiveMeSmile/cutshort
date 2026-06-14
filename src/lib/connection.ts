@@ -31,6 +31,8 @@ export interface Transport {
   send(frame: KeyFrame): void;
   close(): void;
   onFrame?: (f: ServerFrame) => void;
+  /** Fired when the link drops on its own (not via close()) after going live. */
+  onClose?: () => void;
 }
 
 export interface Pairing {
@@ -95,8 +97,11 @@ export function detectAgent(): Pairing | null {
 class WsTransport implements Transport {
   readonly kind: "lan" | "tunnel";
   onFrame?: (f: ServerFrame) => void;
+  onClose?: () => void;
   private ws: WebSocket | null = null;
   private url: string;
+  private opened = false;
+  private closedByUs = false;
 
   constructor(url: string, kind: "lan" | "tunnel") {
     this.url = url;
@@ -113,11 +118,22 @@ class WsTransport implements Transport {
       ws.onopen = () => {
         clearTimeout(timer);
         this.ws = ws;
+        this.opened = true;
         resolve();
       };
       ws.onerror = () => {
         clearTimeout(timer);
-        reject(new Error("ws error"));
+        // A failure before we ever opened is the connect() rejection; once
+        // live, errors arrive as a close (handled below) — don't double-report.
+        if (!this.opened) reject(new Error("ws error"));
+      };
+      ws.onclose = () => {
+        clearTimeout(timer);
+        this.ws = null;
+        // Surface only an *unexpected* drop: one that happens after a successful
+        // open and wasn't triggered by our own close(). A pre-open close is the
+        // connect() rejection's job.
+        if (this.opened && !this.closedByUs) this.onClose?.();
       };
       ws.onmessage = (ev) => {
         try {
@@ -134,6 +150,7 @@ class WsTransport implements Transport {
   }
 
   close() {
+    this.closedByUs = true;
     this.ws?.close();
     this.ws = null;
   }
@@ -198,6 +215,7 @@ export class Connection {
     const isLan = /\.local|192\.168\.|10\.|127\.0\.0\.1|localhost/.test(p.url);
     const t = new WsTransport(p.url, isLan ? "lan" : "tunnel");
     t.onFrame = (f) => this.onServerFrame(f);
+    t.onClose = () => this.onTransportClosed();
     try {
       await t.connect();
       this.transport = t;
@@ -230,6 +248,17 @@ export class Connection {
       this.set("error");
       return false;
     }
+  }
+
+  // The link vanished on its own — agent quit, Mac slept, or the tunnel idled
+  // out. Without this the deck would still read "live" and every tap would
+  // silently no-op (the closed socket just drops sends), so we flip to an error
+  // state and let the UI show "Offline".
+  private onTransportClosed() {
+    if (this.state !== "live" && this.state !== "connecting") return;
+    this.transport = null;
+    this.lastError = "Connection lost";
+    this.set("error");
   }
 
   private onServerFrame(f: ServerFrame) {
