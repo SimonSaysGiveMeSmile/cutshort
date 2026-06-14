@@ -14,6 +14,7 @@ import {
   type Shortcut,
 } from "../shortcuts";
 import { connection, type ConnState } from "../lib/connection";
+import { tapFeedback } from "../lib/haptics";
 
 interface Props {
   os: OS;
@@ -43,6 +44,7 @@ export function ControllerScreen({
     // Only confirm what actually went out — if the link is down the keystroke
     // never reached the Mac, so don't fake a "fired" toast.
     const sent = connection.fire(combo);
+    tapFeedback(sent); // physical confirmation: short tick if it fired, "nope" buzz if not
     if (!sent && state === "error") connection.retry(); // tapping a key wakes a given-up link
     setToast(
       sent
