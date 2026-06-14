@@ -150,6 +150,7 @@ describe("Connection", () => {
     c.onState((s) => seen.push(s));
     await c.pair({ url: "ws://10.0.0.2/ws", host: "x" });
     expect(seen).toEqual(["connecting", "live"]);
+    c.close();
   });
 
   it("stops notifying after unsubscribe", async () => {
@@ -159,6 +160,7 @@ describe("Connection", () => {
     off();
     await c.pair({ url: "ws://10.0.0.2/ws", host: "x" });
     expect(seen).toEqual([]);
+    c.close();
   });
 
   it("classifies a LAN url and goes live, then fires a key frame", async () => {
@@ -177,12 +179,14 @@ describe("Connection", () => {
       t: "key",
       d: { mods: ["MOD", "SHIFT"], key: "r", os: "mac" },
     });
+    c.close();
   });
 
   it("classifies a tunnel url as 'tunnel'", async () => {
     const c = new Connection();
     await c.pair({ url: "wss://abc123.trycloudflare.com/ws", host: "Tunnelled" });
     expect(c.transport?.kind).toBe("tunnel");
+    c.close();
   });
 
   it("updates host/os when the server sends a 'hello' frame", async () => {
@@ -193,6 +197,7 @@ describe("Connection", () => {
     });
     expect(c.host).toBe("Renamed-Mac");
     expect(c.os).toBe("win");
+    c.close();
   });
 
   it("ignores a non-JSON server message without throwing or dropping the link", async () => {
@@ -200,6 +205,7 @@ describe("Connection", () => {
     await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
     expect(() => FakeWebSocket.last!.onmessage!({ data: "not json{" })).not.toThrow();
     expect(c.state).toBe("live");
+    c.close();
   });
 
   it("close() tears down the transport and returns to idle", async () => {
@@ -341,6 +347,74 @@ describe("Connection", () => {
     expect(c.state).toBe("error");
     expect(c.lastError).toBe("ws error");
     expect(c.transport).toBeNull();
+  });
+
+  it("sends periodic heartbeat pings to keep an idle link warm", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      const ws = FakeWebSocket.last!;
+      expect(ws.sent).toHaveLength(0); // nothing sent while truly idle...
+
+      await vi.advanceTimersByTimeAsync(26_000); // ...until the heartbeat fires
+      const pings = ws.sent.map((s) => JSON.parse(s)).filter((f) => f.t === "ping");
+      expect(pings.length).toBeGreaterThanOrEqual(1);
+      expect(c.state).toBe("live"); // a pending pong-wait doesn't drop us yet
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a pong reply keeps the link alive indefinitely (no false teardown)", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      const ws = FakeWebSocket.last!;
+      // Agent answers every ping with a pong (as the real agent does).
+      const origSend = ws.send.bind(ws);
+      ws.send = (data: string) => {
+        origSend(data);
+        if (JSON.parse(data).t === "ping") {
+          ws.onmessage?.({ data: JSON.stringify({ v: 1, t: "pong" }) });
+        }
+      };
+
+      await vi.advanceTimersByTimeAsync(120_000); // 2 minutes of idle heartbeating
+      expect(c.state).toBe("live");
+      expect(ws.closed).toBe(false);
+      expect(FakeWebSocket.last).toBe(ws); // never had to reconnect
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a missing pong as a dead link and reconnects (zombie socket)", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      const first = FakeWebSocket.last!; // this socket will go silent (no pong)
+
+      // ping at 25s, no pong, watchdog fires at 35s → force-close → reconnect.
+      await vi.advanceTimersByTimeAsync(40_000);
+
+      expect(first.closed).toBe(true); // the zombie was torn down
+      expect(FakeWebSocket.last).not.toBe(first); // a fresh socket replaced it
+      expect(c.state).toBe("live"); // and the deck is usable again
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reports bluetooth unsupported and refuses to pair over BLE in jsdom", async () => {

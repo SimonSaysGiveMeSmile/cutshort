@@ -102,6 +102,15 @@ class WsTransport implements Transport {
   private url: string;
   private opened = false;
   private closedByUs = false;
+  // Heartbeat: a Cloudflare Quick Tunnel drops a WebSocket after ~100s idle, so
+  // we ping well under that to keep an unused deck warm. The ping doubles as a
+  // liveness probe — if the agent doesn't pong back in time the socket is a
+  // zombie (e.g. the phone switched WiFi↔cellular), so we force it closed, which
+  // trips onclose → reconnect far faster than the OS would notice.
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly PING_INTERVAL_MS = 25_000;
+  private static readonly PONG_TIMEOUT_MS = 10_000;
 
   constructor(url: string, kind: "lan" | "tunnel") {
     this.url = url;
@@ -119,6 +128,7 @@ class WsTransport implements Transport {
         clearTimeout(timer);
         this.ws = ws;
         this.opened = true;
+        this.startHeartbeat();
         resolve();
       };
       ws.onerror = () => {
@@ -129,6 +139,7 @@ class WsTransport implements Transport {
       };
       ws.onclose = () => {
         clearTimeout(timer);
+        this.stopHeartbeat();
         this.ws = null;
         // Surface only an *unexpected* drop: one that happens after a successful
         // open and wasn't triggered by our own close(). A pre-open close is the
@@ -136,11 +147,14 @@ class WsTransport implements Transport {
         if (this.opened && !this.closedByUs) this.onClose?.();
       };
       ws.onmessage = (ev) => {
+        let frame: ServerFrame;
         try {
-          this.onFrame?.(JSON.parse(ev.data));
+          frame = JSON.parse(ev.data);
         } catch {
-          /* ignore non-JSON */
+          return; // ignore non-JSON
         }
+        if (frame?.t === "pong") this.onPong();
+        this.onFrame?.(frame);
       };
     });
   }
@@ -149,8 +163,52 @@ class WsTransport implements Transport {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(frame));
   }
 
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.pingTimer = setInterval(() => this.sendPing(), WsTransport.PING_INTERVAL_MS);
+  }
+
+  private sendPing() {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    // Arm the pong watchdog BEFORE sending so a synchronous reply still clears it.
+    if (!this.pongTimer) {
+      this.pongTimer = setTimeout(() => this.onPongTimeout(), WsTransport.PONG_TIMEOUT_MS);
+    }
+    this.ws.send(JSON.stringify({ v: 1, t: "ping" }));
+  }
+
+  private onPong() {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
+
+  private onPongTimeout() {
+    this.pongTimer = null;
+    // Dead/zombie link — close it so onclose fires and the Connection reconnects.
+    // Deliberately NOT closedByUs: this IS an unexpected drop we want to recover.
+    try {
+      this.ws?.close();
+    } catch {
+      /* already gone */
+    }
+  }
+
+  private stopHeartbeat() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
+
   close() {
     this.closedByUs = true;
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
   }
