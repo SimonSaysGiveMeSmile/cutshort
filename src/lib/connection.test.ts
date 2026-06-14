@@ -219,21 +219,19 @@ describe("Connection", () => {
     expect(c.fire({ mods: [], key: "x" })).toBe(false);
   });
 
-  it("surfaces an unexpected drop as an error so taps don't silently vanish", async () => {
+  it("a dropped link immediately stops reading 'live' so taps can't silently vanish", async () => {
     const c = new Connection();
-    const seen: string[] = [];
-    c.onState((s) => seen.push(s));
     await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
     expect(c.state).toBe("live");
 
     // Agent quits / Mac sleeps / tunnel idles out — the socket closes on its own.
     FakeWebSocket.last!.drop();
 
-    expect(c.state).toBe("error");
+    expect(c.state).not.toBe("live"); // -> "connecting" (auto-reconnecting)
     expect(c.transport).toBeNull();
-    expect(c.lastError).toMatch(/lost/i);
-    expect(c.fire({ mods: [], key: "x" })).toBe(false);
-    expect(seen).toEqual(["connecting", "live", "error"]);
+    expect(c.fire({ mods: [], key: "x" })).toBe(false); // no silent no-op tap
+    c.close(); // cancel the pending reconnect timer so the test leaves nothing running
+    expect(c.state).toBe("idle");
   });
 
   it("does not report an error when WE close the link (no false drop)", async () => {
@@ -253,6 +251,86 @@ describe("Connection", () => {
     c.close();
     expect(() => ws.drop()).not.toThrow();
     expect(c.state).toBe("idle"); // a stray late close can't knock us off idle
+  });
+
+  it("auto-reconnects after an unexpected drop (sleep/wake, tunnel re-establish)", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const seen: string[] = [];
+      c.onState((s) => seen.push(s));
+
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+      await vi.advanceTimersByTimeAsync(1); // fake socket opens
+      await pairing;
+      expect(c.state).toBe("live");
+
+      FakeWebSocket.last!.drop(); // link vanishes
+      expect(c.state).toBe("connecting"); // not "error" — it's retrying
+
+      await vi.advanceTimersByTimeAsync(600); // backoff elapses, new socket opens
+      expect(c.state).toBe("live");
+      expect(c.fire({ mods: ["MOD"], key: "c" })).toBe(true); // taps work again
+      expect(seen).toEqual(["connecting", "live", "connecting", "live"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up with an error after exhausting reconnect attempts", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      expect(c.state).toBe("live");
+
+      FakeWebSocket.mode = "error"; // agent is truly gone; every retry fails
+      FakeWebSocket.last!.drop();
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000); // run through all backoffs
+
+      expect(c.state).toBe("error");
+      expect(c.lastError).toMatch(/lost/i);
+      expect(c.fire({ mods: [], key: "x" })).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not auto-reconnect after an intentional close()", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+
+      c.close();
+      expect(c.state).toBe("idle");
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(c.state).toBe("idle"); // stayed down on purpose — no resurrection
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a failed initial pair errors out without scheduling reconnects (no typo storm)", async () => {
+    vi.useFakeTimers();
+    try {
+      FakeWebSocket.mode = "error";
+      const c = new Connection();
+      const pairing = c.pair({ url: "wss://typo.example/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      const ok = await pairing;
+
+      expect(ok).toBe(false);
+      expect(c.state).toBe("error");
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(c.state).toBe("error"); // manual failure never auto-retries
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sets error state and message when the socket fails", async () => {

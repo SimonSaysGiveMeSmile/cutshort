@@ -192,6 +192,15 @@ export class Connection {
   host = "";
   os: OS = "mac";
   lastError = "";
+  // Auto-reconnect: remember the target so a dropped link (sleep/wake, tunnel
+  // re-establish, brief network blip) can come back on its own, with capped
+  // exponential backoff and a bounded attempt count so a truly-gone agent
+  // eventually settles on "error" instead of retrying forever / draining battery.
+  private wantUrl: Pairing | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private attempt = 0;
+  private static readonly MAX_BACKOFF_MS = 10_000;
+  private static readonly MAX_ATTEMPTS = 8;
   private listeners = new Set<(s: ConnState) => void>();
 
   onState(fn: (s: ConnState) => void) {
@@ -207,29 +216,50 @@ export class Connection {
     return BluetoothTransport.supported();
   }
 
-  /** Connect to a real agent over WS. Throws/sets error on failure. */
+  /**
+   * Connect to a real agent over WS. A *manual* pair (user-initiated): on
+   * failure it errors out immediately and does NOT auto-retry, so a typo'd URL
+   * can't spin up a reconnect storm. Once live, an unexpected drop DOES trigger
+   * auto-reconnect (see onTransportClosed).
+   */
   async pair(p: Pairing): Promise<boolean> {
-    this.set("connecting");
-    this.host = p.host ?? "Machine";
+    this.wantUrl = p; // remember the target so drops can auto-reconnect
+    this.attempt = 0;
+    return this.openTransport(p, /* manual */ true);
+  }
+
+  private async openTransport(p: Pairing, manual: boolean): Promise<boolean> {
+    this.clearReconnect();
+    // scheduleReconnect() already moved us to "connecting" for the backoff wait;
+    // don't re-emit the same state when the retry timer actually fires.
+    if (this.state !== "connecting") this.set("connecting");
+    this.host = p.host ?? this.host ?? "Machine";
     if (p.os) this.os = p.os;
     const isLan = /\.local|192\.168\.|10\.|127\.0\.0\.1|localhost/.test(p.url);
     const t = new WsTransport(p.url, isLan ? "lan" : "tunnel");
     t.onFrame = (f) => this.onServerFrame(f);
-    t.onClose = () => this.onTransportClosed();
+    t.onClose = () => this.onTransportClosed(t);
     try {
       await t.connect();
       this.transport = t;
+      this.attempt = 0; // a good connection resets the backoff
       this.set("live");
       return true;
     } catch (e) {
       this.lastError = (e as Error).message;
       this.transport = null;
-      this.set("error");
+      if (manual) {
+        this.set("error"); // user-initiated failure: surface it, don't loop
+        return false;
+      }
+      this.scheduleReconnect(); // a reconnect attempt failed — back off and retry
       return false;
     }
   }
 
   async pairBluetooth(): Promise<boolean> {
+    this.wantUrl = null; // BLE isn't auto-reconnected; drop any pending WS retry
+    this.clearReconnect();
     if (!BluetoothTransport.supported()) {
       this.lastError = "Web Bluetooth not supported on this device";
       this.set("error");
@@ -252,13 +282,37 @@ export class Connection {
 
   // The link vanished on its own — agent quit, Mac slept, or the tunnel idled
   // out. Without this the deck would still read "live" and every tap would
-  // silently no-op (the closed socket just drops sends), so we flip to an error
-  // state and let the UI show "Offline".
-  private onTransportClosed() {
-    if (this.state !== "live" && this.state !== "connecting") return;
+  // silently no-op (the closed socket just drops sends). We drop the dead
+  // transport and try to bring the link back; only after exhausting the retry
+  // budget do we settle on "error" (which the UI shows as "Offline").
+  private onTransportClosed(t: Transport) {
+    if (t !== this.transport) return; // stale callback from a replaced socket
     this.transport = null;
-    this.lastError = "Connection lost";
-    this.set("error");
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect() {
+    this.clearReconnect();
+    if (!this.wantUrl || this.attempt >= Connection.MAX_ATTEMPTS) {
+      this.lastError = "Connection lost";
+      this.set("error");
+      return;
+    }
+    const delay = Math.min(Connection.MAX_BACKOFF_MS, 500 * 2 ** this.attempt);
+    this.attempt++;
+    this.lastError = "Connection lost — reconnecting…";
+    this.set("connecting"); // UI keeps the user informed instead of faking "live"
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.wantUrl) this.openTransport(this.wantUrl, /* manual */ false);
+    }, delay);
+  }
+
+  private clearReconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private onServerFrame(f: ServerFrame) {
@@ -281,6 +335,8 @@ export class Connection {
   }
 
   close() {
+    this.wantUrl = null; // intentional teardown — stop auto-reconnecting
+    this.clearReconnect();
     this.transport?.close();
     this.transport = null;
     this.set("idle");
