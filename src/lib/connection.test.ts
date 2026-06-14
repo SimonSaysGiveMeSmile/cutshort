@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parsePairing, detectAgent, Connection, type KeyFrame } from "./connection";
+import { parsePairing, detectAgent, Connection, bindAutoWake, type KeyFrame } from "./connection";
 import type { Combo } from "../shortcuts";
 
 describe("parsePairing", () => {
@@ -463,5 +463,35 @@ describe("Connection", () => {
     expect(ok).toBe(false);
     expect(c.state).toBe("error");
     expect(c.lastError).toMatch(/bluetooth/i);
+  });
+});
+
+describe("bindAutoWake", () => {
+  it("retries when the tab becomes visible again", () => {
+    const c = new Connection();
+    const spy = vi.spyOn(c, "retry").mockResolvedValue(true);
+    const off = bindAutoWake(c);
+    document.dispatchEvent(new Event("visibilitychange")); // jsdom defaults to "visible"
+    expect(spy).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it("retries when the network comes back online", () => {
+    const c = new Connection();
+    const spy = vi.spyOn(c, "retry").mockResolvedValue(true);
+    const off = bindAutoWake(c);
+    window.dispatchEvent(new Event("online"));
+    expect(spy).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it("stops listening after its cleanup runs", () => {
+    const c = new Connection();
+    const spy = vi.spyOn(c, "retry").mockResolvedValue(true);
+    const off = bindAutoWake(c);
+    off();
+    window.dispatchEvent(new Event("online"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(spy).not.toHaveBeenCalled();
   });
 });

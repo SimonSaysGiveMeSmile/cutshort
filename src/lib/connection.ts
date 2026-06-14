@@ -416,3 +416,23 @@ export class Connection {
 }
 
 export const connection = new Connection();
+
+/**
+ * Wire the "I'm back" signals — the tab becoming visible again (phone unlocked,
+ * app foregrounded) and the network returning — to a reconnect. retry() is a
+ * no-op unless we're paired and currently offline, so this is safe to bind once
+ * at startup regardless of screen. Returns a cleanup function.
+ */
+export function bindAutoWake(conn: Connection = connection): () => void {
+  if (typeof document === "undefined") return () => {};
+  const onVisible = () => {
+    if (document.visibilityState === "visible") conn.retry();
+  };
+  const onOnline = () => conn.retry();
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("online", onOnline);
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("online", onOnline);
+  };
+}
