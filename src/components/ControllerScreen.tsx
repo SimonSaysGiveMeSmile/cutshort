@@ -43,6 +43,7 @@ export function ControllerScreen({
     // Only confirm what actually went out — if the link is down the keystroke
     // never reached the Mac, so don't fake a "fired" toast.
     const sent = connection.fire(combo);
+    if (!sent && state === "error") connection.retry(); // tapping a key wakes a given-up link
     setToast(
       sent
         ? { text: `${s.label} · ${comboLabel(combo, os)}`, ok: true }
@@ -62,14 +63,22 @@ export function ControllerScreen({
           CutShort
         </span>
         <span className="spacer" />
-        <span className="status" data-live={state}>
-          <span className="led" />
-          {state === "live"
-            ? connection.host || "Connected"
-            : state === "connecting"
-              ? "Linking…"
-              : "Offline"}
-        </span>
+        {state === "live" || state === "connecting" ? (
+          <span className="status" data-live={state}>
+            <span className="led" />
+            {state === "live" ? connection.host || "Connected" : "Linking…"}
+          </span>
+        ) : (
+          <button
+            className="status status-action"
+            data-live={state}
+            onClick={() => connection.retry()}
+            aria-label="Reconnect to your computer"
+          >
+            <span className="led" />
+            Reconnect
+          </button>
+        )}
         <button
           className="icon-btn"
           onClick={onToggleMode}

@@ -286,6 +286,20 @@ export class Connection {
     return this.openTransport(p, /* manual */ true);
   }
 
+  /**
+   * Re-attempt the last target on demand — the escape hatch once auto-reconnect
+   * has given up (e.g. the user reopens the laptop an hour later and taps the
+   * "Reconnect" chip). No-op if we never paired or are already live / mid-retry;
+   * resets the backoff so a deliberate retry starts fresh.
+   */
+  async retry(): Promise<boolean> {
+    if (!this.wantUrl) return false;
+    if (this.state === "live") return true;
+    if (this.state === "connecting") return false; // a reconnect is already in flight
+    this.attempt = 0;
+    return this.openTransport(this.wantUrl, /* manual */ true);
+  }
+
   private async openTransport(p: Pairing, manual: boolean): Promise<boolean> {
     this.clearReconnect();
     // scheduleReconnect() already moved us to "connecting" for the backoff wait;

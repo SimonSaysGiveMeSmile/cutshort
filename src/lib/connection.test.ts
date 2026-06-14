@@ -417,6 +417,45 @@ describe("Connection", () => {
     }
   });
 
+  it("retry() brings the link back after auto-reconnect has given up", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+
+      FakeWebSocket.mode = "error"; // agent gone — exhaust the retry budget
+      FakeWebSocket.last!.drop();
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(c.state).toBe("error");
+
+      FakeWebSocket.mode = "open"; // agent is back; user taps "Reconnect"
+      const r = c.retry();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await r).toBe(true);
+      expect(c.state).toBe("live");
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retry() is a no-op before anything was ever paired", async () => {
+    const c = new Connection();
+    expect(await c.retry()).toBe(false);
+    expect(c.state).toBe("idle");
+  });
+
+  it("retry() reports already-live without opening a second socket", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+    const ws = FakeWebSocket.last!;
+    expect(await c.retry()).toBe(true);
+    expect(FakeWebSocket.last).toBe(ws); // no redundant reconnect while healthy
+    c.close();
+  });
+
   it("reports bluetooth unsupported and refuses to pair over BLE in jsdom", async () => {
     const c = new Connection();
     expect(c.bluetoothSupported()).toBe(false);

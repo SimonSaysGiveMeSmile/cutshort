@@ -150,6 +150,20 @@ body {
   box-shadow: 0 0 8px #ffb020;
   animation: pulse 1s ease-in-out infinite;
 }
+.status[data-live="error"] .led,
+.status[data-live="idle"] .led {
+  background: #ff5a5f;
+  box-shadow: 0 0 8px #ff5a5f;
+}
+/* Offline status is a tappable "Reconnect" control, not just a label. */
+.status-action {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.status-action:active {
+  transform: scale(0.96);
+}
 @keyframes pulse {
   50% {
     opacity: 0.4;
