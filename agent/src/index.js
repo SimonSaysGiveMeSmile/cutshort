@@ -28,6 +28,7 @@ import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
+import { lanIPv4s } from "./net.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
   APP_NAME,
@@ -209,16 +210,6 @@ wss.on("connection", (ws, req) => {
 });
 
 // ── boot ───────────────────────────────────────────────────────────
-function lanIPs() {
-  const out = [];
-  for (const addrs of Object.values(os.networkInterfaces() || {})) {
-    for (const a of addrs || []) {
-      if (!a.internal && (a.family === "IPv4" || a.family === 4)) out.push(a.address);
-    }
-  }
-  return out;
-}
-
 async function printQR(url, label) {
   const qr = await QRCode.toString(url, { type: "terminal", small: true });
   console.log(`\n${label}\n${qr}`);
@@ -233,7 +224,7 @@ server.listen(PORT, "0.0.0.0", async () => {
     if (!process.env.CUTSHORT_NO_OPEN) exec(`open "http://127.0.0.1:${PORT}/pair"`);
   }
 
-  const lan = lanIPs()[0];
+  const lan = lanIPv4s()[0];
   console.log("┌──────────────────────────────────────────────┐");
   console.log(`│  ${APP_NAME} agent  ·  ${HOSTNAME} (${PLATFORM})`.padEnd(49) + "│");
   console.log("└──────────────────────────────────────────────┘");
