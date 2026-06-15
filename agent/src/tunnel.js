@@ -6,6 +6,18 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 
+// Pull the public URL out of a provider's log stream. Exported and pure so these
+// format-specific regexes are unit-testable — a silent break here means remote
+// access quietly degrades to LAN-only with no visible error.
+export function extractCloudflaredUrl(text) {
+  const m = String(text).match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+  return m ? m[0] : null;
+}
+export function extractNgrokUrl(text) {
+  const m = String(text).match(/url=(https?:\/\/[^\s]+)/);
+  return m ? m[1] : null;
+}
+
 function findBinary(name) {
   const candidates = [
     `/opt/homebrew/bin/${name}`,
@@ -51,10 +63,10 @@ async function tryCloudflared(port) {
       let buf = "";
       const onData = (chunk) => {
         buf += chunk.toString();
-        const m = buf.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-        if (m) {
+        const url = extractCloudflaredUrl(buf);
+        if (url) {
           clearTimeout(timeout);
-          resolve(m[0]);
+          resolve(url);
         }
       };
       proc.stdout.on("data", onData);
@@ -96,10 +108,10 @@ async function tryNgrok(port) {
       let buf = "";
       proc.stdout.on("data", (chunk) => {
         buf += chunk.toString();
-        const m = buf.match(/url=(https?:\/\/[^\s]+)/);
-        if (m) {
+        const url = extractNgrokUrl(buf);
+        if (url) {
           clearTimeout(timeout);
-          resolve(m[1]);
+          resolve(url);
         }
       });
       proc.on("error", (e) => {

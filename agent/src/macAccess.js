@@ -45,6 +45,17 @@ const TERM_MAP = {
   rio: "Rio",
 };
 
+/** Map a $TERM_PROGRAM value to a friendly host-app name, or null if unknown. */
+export function appNameFromTermProgram(tp) {
+  return (tp && TERM_MAP[tp]) || null;
+}
+
+/** Pull an app-bundle name out of a `ps comm` path, or null if it isn't in one. */
+export function appNameFromCommand(comm) {
+  const m = String(comm).match(/\/([^/]+)\.app\//);
+  return m ? m[1] : null;
+}
+
 // Fallback: walk the parent process chain looking for a .app bundle.
 function appFromParents() {
   try {
@@ -56,9 +67,8 @@ function appFromParents() {
       const sp = out.indexOf(" ");
       if (sp < 0) break;
       const parent = parseInt(out.slice(0, sp), 10);
-      const comm = out.slice(sp + 1).trim();
-      const m = comm.match(/\/([^/]+)\.app\//);
-      if (m) return m[1];
+      const name = appNameFromCommand(out.slice(sp + 1).trim());
+      if (name) return name;
       pid = parent;
     }
   } catch {
@@ -68,9 +78,12 @@ function appFromParents() {
 }
 
 export function hostAppName() {
-  const tp = process.env.TERM_PROGRAM;
-  if (tp && TERM_MAP[tp]) return TERM_MAP[tp];
-  return appFromParents() || tp || "the app you launched this from";
+  return (
+    appNameFromTermProgram(process.env.TERM_PROGRAM) ||
+    appFromParents() ||
+    process.env.TERM_PROGRAM ||
+    "the app you launched this from"
+  );
 }
 
 // A lone-modifier tap is a no-op for the focused app but forces macOS to add
