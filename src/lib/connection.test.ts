@@ -129,6 +129,33 @@ class FakeWebSocket {
   }
 }
 
+// Minimal Web Bluetooth device stand-in: drives the GATT chain and lets a test
+// fire a gattserverdisconnected event.
+function fakeBleDevice() {
+  const listeners: Record<string, Array<() => void>> = {};
+  const char = { writeValue: vi.fn(async () => {}) };
+  const gatt = {
+    connected: true,
+    connect: vi.fn(async () => ({
+      getPrimaryService: async () => ({ getCharacteristic: async () => char }),
+    })),
+    disconnect: vi.fn(() => {
+      gatt.connected = false;
+    }),
+  };
+  return {
+    gatt,
+    char,
+    addEventListener: (t: string, fn: () => void) => {
+      (listeners[t] ||= []).push(fn);
+    },
+    removeEventListener: (t: string, fn: () => void) => {
+      listeners[t] = (listeners[t] || []).filter((f) => f !== fn);
+    },
+    emit: (t: string) => (listeners[t] || []).forEach((f) => f()),
+  };
+}
+
 describe("Connection", () => {
   beforeEach(() => {
     FakeWebSocket.mode = "open";
@@ -463,6 +490,34 @@ describe("Connection", () => {
     expect(ok).toBe(false);
     expect(c.state).toBe("error");
     expect(c.lastError).toMatch(/bluetooth/i);
+  });
+
+  it("surfaces a BLE GATT disconnect the same way as a WS drop", async () => {
+    const device = fakeBleDevice();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+    const c = new Connection();
+    expect(await c.pairBluetooth()).toBe(true);
+    expect(c.state).toBe("live");
+
+    device.emit("gattserverdisconnected"); // powered off / out of range
+    expect(c.state).toBe("error"); // no longer falsely "live"
+    expect(c.fire({ mods: [], key: "x" })).toBe(false); // taps don't silently vanish
+  });
+
+  it("an intentional BLE close() doesn't report a drop and disconnects GATT", async () => {
+    const device = fakeBleDevice();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+    const c = new Connection();
+    await c.pairBluetooth();
+    const seen: string[] = [];
+    c.onState((s) => seen.push(s));
+
+    c.close();
+    expect(c.state).toBe("idle");
+    expect(device.gatt.disconnect).toHaveBeenCalled();
+    device.emit("gattserverdisconnected"); // a late self-disconnect must not resurrect "error"
+    expect(c.state).toBe("idle");
+    expect(seen).toEqual(["idle"]);
   });
 });
 

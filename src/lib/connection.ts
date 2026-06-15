@@ -214,12 +214,35 @@ class WsTransport implements Transport {
   }
 }
 
+/** Minimal shape of the Web Bluetooth bits we touch (not in default DOM types). */
+interface BleDevice {
+  addEventListener(type: "gattserverdisconnected", fn: () => void): void;
+  removeEventListener(type: "gattserverdisconnected", fn: () => void): void;
+  gatt?: {
+    connected: boolean;
+    connect(): Promise<{
+      getPrimaryService(s: string): Promise<{
+        getCharacteristic(c: string): Promise<{ writeValue(v: BufferSource): Promise<void> }>;
+      }>;
+    }>;
+    disconnect(): void;
+  };
+}
+
 /** Web Bluetooth transport — a supplementary/offline path (GATT write). */
 class BluetoothTransport implements Transport {
   readonly kind = "bluetooth" as const;
+  onClose?: () => void;
   private static SERVICE = "0000c45b-0000-1000-8000-00805f9b34fb";
   private static CHAR = "0000c45c-0000-1000-8000-00805f9b34fb";
   private char: { writeValue(v: BufferSource): Promise<void> } | null = null;
+  private device: BleDevice | null = null;
+  private closedByUs = false;
+  // A GATT drop (device powered off / out of range) is the BLE equivalent of a
+  // socket close — surface it so the deck doesn't keep reading "live".
+  private onDisconnect = () => {
+    if (!this.closedByUs) this.onClose?.();
+  };
 
   static supported() {
     return typeof navigator !== "undefined" && "bluetooth" in navigator;
@@ -227,10 +250,12 @@ class BluetoothTransport implements Transport {
 
   async connect() {
     // @ts-expect-error - navigator.bluetooth is not in default lib.dom types
-    const device = await navigator.bluetooth.requestDevice({
+    const device: BleDevice = await navigator.bluetooth.requestDevice({
       filters: [{ services: [BluetoothTransport.SERVICE] }],
     });
-    const server = await device.gatt.connect();
+    this.device = device;
+    device.addEventListener("gattserverdisconnected", this.onDisconnect);
+    const server = await device.gatt!.connect();
     const svc = await server.getPrimaryService(BluetoothTransport.SERVICE);
     this.char = await svc.getCharacteristic(BluetoothTransport.CHAR);
   }
@@ -240,7 +265,15 @@ class BluetoothTransport implements Transport {
   }
 
   close() {
+    this.closedByUs = true;
+    try {
+      this.device?.removeEventListener("gattserverdisconnected", this.onDisconnect);
+      if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    } catch {
+      /* best-effort */
+    }
     this.char = null;
+    this.device = null;
   }
 }
 
@@ -339,6 +372,7 @@ export class Connection {
     }
     this.set("connecting");
     const t = new BluetoothTransport();
+    t.onClose = () => this.onTransportClosed(t);
     try {
       await t.connect();
       this.transport = t;
