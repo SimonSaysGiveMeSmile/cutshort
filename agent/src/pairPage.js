@@ -4,6 +4,10 @@
 // so it serves this page and opens it in the default browser. The user scans
 // the on-screen QR with their phone — same as scanning the terminal QR before.
 // It also surfaces the one-time Accessibility step and a Stop button.
+//
+// Styled as a monochrome "control panel" to match the phone app's homepage.
+// Self-contained (system monospace, no web fonts) so it renders identically
+// even when the agent host is offline / LAN-only.
 
 import QRCode from "qrcode";
 
@@ -19,7 +23,7 @@ export async function renderPairPage({ entries, appName }) {
     entries.map(async (e) => {
       const data = await QRCode.toDataURL(e.url, { margin: 1, width: 320, errorCorrectionLevel: "M" });
       return `<section class="card">
-        <h2>${esc(e.label)}</h2>
+        <div class="card-head"><span>${esc(e.label)}</span><span class="sep">scan</span></div>
         <img alt="QR code for ${esc(e.label)}" src="${data}" />
         <code>${esc(e.url)}</code>
       </section>`;
@@ -40,57 +44,98 @@ export async function renderPairPage({ entries, appName }) {
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-    background: radial-gradient(120% 120% at 50% 0%, #15171c 0%, #0a0b0e 60%); color: #e9edf2;
-    display: flex; flex-direction: column; align-items: center; padding: 2.5rem 1.25rem 3rem;
+    margin: 0; min-height: 100vh; color: #ededed;
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    background-color: #060607;
+    background-image:
+      linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+    background-size: 30px 30px;
+    display: flex; flex-direction: column; align-items: center;
+    padding: clamp(20px,5vw,40px) clamp(16px,5vw,40px) 40px;
+    position: relative;
   }
-  header { text-align: center; margin-bottom: 1.75rem; }
-  h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
-  header p { margin: .4rem 0 0; color: #9aa3ad; }
-  .cards { display: flex; flex-wrap: wrap; gap: 1.25rem; justify-content: center; }
-  .card {
-    background: #14161b; border: 1px solid #23262d; border-radius: 16px; padding: 1.1rem 1.1rem 1.25rem;
-    width: 320px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(125% 80% at 50% 0%, transparent 45%, rgba(0,0,0,.6) 100%);
   }
-  .card h2 { margin: 0 0 .75rem; font-size: .95rem; color: #c7ccd3; font-weight: 600; }
-  .card img { width: 280px; height: 280px; background: #fff; border-radius: 10px; display: block; margin: 0 auto .7rem; }
-  code { font-size: .72rem; color: #8b93a7; word-break: break-all; display: block; }
-  .muted { color: #9aa3ad; }
-  .access { max-width: 560px; margin: 2rem auto 0; text-align: center; color: #b9c0c9; line-height: 1.5; }
-  .access b { color: #fff; }
+  .rail, main, footer { width: 100%; max-width: 760px; }
+  .rail {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.1);
+    font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase;
+    color: rgba(255,255,255,.6);
+  }
+  .rail .id { color: #fff; }
+  .sep { color: rgba(255,255,255,.32); padding: 0 .5ch; }
+  .stat { display: inline-flex; align-items: center; gap: 8px; }
+  .led {
+    width: 7px; height: 7px; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 9px rgba(255,255,255,.9); animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .22; } }
+  main { display: flex; flex-direction: column; align-items: center; }
+  h1 {
+    margin: 34px 0 0; font-size: clamp(34px,9vw,60px); font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; text-align: center;
+  }
+  .lead { margin: .6rem 0 0; color: rgba(255,255,255,.5); font-size: 13px; letter-spacing: .02em; text-align: center; }
+  .cards { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin-top: 30px; }
+  .card { width: 320px; max-width: 100%; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.018); padding: 14px; }
+  .card-head, .panel-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.08);
+    font-size: 10.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.78);
+  }
+  .card img { width: 100%; aspect-ratio: 1 / 1; background: #fff; padding: 12px; display: block; }
+  .card code { display: block; margin-top: 10px; font-size: 11px; color: rgba(255,255,255,.5); word-break: break-all; }
+  .muted { color: rgba(255,255,255,.5); margin-top: 30px; font-size: 13px; }
+  .panel { width: 100%; max-width: 520px; margin-top: 26px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.018); padding: 14px; }
+  .panel p { margin: 0 0 12px; font-size: 12.5px; line-height: 1.55; color: rgba(255,255,255,.6); }
+  .panel b { color: #fff; }
   .btn {
-    appearance: none; border: 1px solid #2c2f37; background: #1b1e25; color: #e9edf2;
-    border-radius: 10px; padding: .55rem 1rem; font-size: .85rem; cursor: pointer; margin: .35rem;
+    appearance: none; border: 1px solid rgba(255,255,255,.4); background: transparent; color: #fff;
+    font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+    padding: 10px 16px; cursor: pointer; transition: background .16s ease, color .16s ease, border-color .16s ease;
   }
-  .btn:hover { background: #232730; }
-  .btn.stop { border-color: #5a2230; color: #ff9aa9; }
-  footer { margin-top: 2rem; }
+  .btn:hover { background: #fff; color: #000; border-color: #fff; }
+  footer {
+    margin-top: 36px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.4);
+  }
 </style>
 </head>
 <body>
-  <header>
+  <div class="rail">
+    <span class="id">CUTSHORT<span class="sep">//</span>PAIR</span>
+    <span class="stat"><i class="led"></i> LIVE</span>
+  </div>
+
+  <main>
     <h1>${esc(appName)}</h1>
-    <p>Scan a code below with your phone to control this Mac.</p>
-  </header>
+    <p class="lead">Scan a code with your phone to control this Mac.</p>
 
-  ${cardsHtml}
+    ${cardsHtml}
 
-  <section class="access">
-    <h3>One-time: allow keystrokes</h3>
-    <p>If shortcuts don't fire, enable <b>${esc(appName)}</b> under
-       System Settings ▸ Privacy &amp; Security ▸ Accessibility, then restart the agent.</p>
-    <button class="btn" onclick="openAccess(this)">Open Accessibility settings</button>
-  </section>
+    <section class="panel">
+      <div class="panel-head"><span>01 / Accessibility</span></div>
+      <p>If shortcuts don't fire, enable <b>${esc(appName)}</b> under
+         System Settings ▸ Privacy &amp; Security ▸ Accessibility, then restart the agent.</p>
+      <button class="btn" onclick="openAccess(this)">Open Accessibility settings</button>
+    </section>
+  </main>
 
   <footer>
-    <button class="btn stop" onclick="stop()">Stop agent</button>
+    <span>${esc(appName)}<span class="sep">//</span>v0.1.0</span>
+    <button class="btn" onclick="stop()">Stop agent</button>
   </footer>
 
   <script>
-    function openAccess(b) { fetch('/api/open-accessibility', { method: 'POST' }); b.textContent = 'Opened settings ✓'; }
+    function openAccess(b) { fetch('/api/open-accessibility', { method: 'POST' }); b.textContent = 'OPENED SETTINGS ✓'; }
     function stop() {
       fetch('/api/quit', { method: 'POST' }).finally(() => {
-        document.body.innerHTML = '<p style="font-family:system-ui;color:#9aa3ad;padding:3rem;text-align:center">CutShort agent stopped. You can close this tab.</p>';
+        document.body.innerHTML = '<p style="font-family:ui-monospace,monospace;color:#888;padding:3rem;text-align:center;letter-spacing:.12em">CUTSHORT AGENT STOPPED — you can close this tab.</p>';
       });
     }
   </script>
