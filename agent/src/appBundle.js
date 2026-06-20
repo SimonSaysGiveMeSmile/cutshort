@@ -189,12 +189,26 @@ export function clearPid() {
   }
 }
 
+/** True if a process with this pid currently exists (signal 0 = existence probe). */
+export function pidAlive(pid) {
+  if (!(pid > 0)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM"; // exists but owned by another user — still alive
+  }
+}
+
 /** Stop a running (backgrounded) agent. Returns the pid killed, or 0. */
 export function stopRunning() {
   try {
     const pid = parseInt(fs.readFileSync(PID_FILE, "utf8"), 10);
     fs.rmSync(PID_FILE, { force: true });
-    if (pid > 0) {
+    // Only signal a pid that's actually alive: after a hard crash the pid file
+    // is stale, and once the OS recycles that pid a blind SIGTERM could kill an
+    // unrelated process.
+    if (pidAlive(pid)) {
       process.kill(pid, "SIGTERM");
       return pid;
     }

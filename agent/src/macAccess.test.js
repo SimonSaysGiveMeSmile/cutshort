@@ -7,7 +7,7 @@ vi.mock("@nut-tree-fork/nut-js", () => {
   return { keyboard: { config: {}, type: vi.fn(async () => {}) }, Key };
 });
 
-import { appNameFromTermProgram, appNameFromCommand } from "./macAccess.js";
+import { appNameFromTermProgram, appNameFromCommand, pickHostApp } from "./macAccess.js";
 
 // Getting the host-app name wrong means we tell the user to enable the wrong
 // Accessibility row, so keystrokes silently never fire (terminal / NO_APP mode).
@@ -39,5 +39,28 @@ describe("appNameFromCommand", () => {
     expect(appNameFromCommand("/bin/zsh")).toBeNull();
     expect(appNameFromCommand("node")).toBeNull();
     expect(appNameFromCommand("")).toBeNull();
+  });
+});
+
+describe("pickHostApp", () => {
+  it("uses the term-program name for plain terminals", () => {
+    expect(pickHostApp("Apple_Terminal", null)).toBe("Terminal");
+    expect(pickHostApp("iTerm.app", "/ignored")).toBe("iTerm");
+  });
+
+  it("prefers the parent .app over the generic VSCode label for forks", () => {
+    // Cursor/Windsurf/VSCodium all set TERM_PROGRAM=vscode
+    expect(pickHostApp("vscode", "Cursor")).toBe("Cursor");
+    expect(pickHostApp("vscode", "Windsurf")).toBe("Windsurf");
+  });
+
+  it("falls back to the VSCode label when no parent .app is found", () => {
+    expect(pickHostApp("vscode", null)).toBe('Visual Studio Code (shown as "Code")');
+  });
+
+  it("falls back to the parent app, then the raw value, then a generic phrase", () => {
+    expect(pickHostApp("SomeFutureTerm", "Hyper")).toBe("Hyper");
+    expect(pickHostApp("SomeFutureTerm", null)).toBe("SomeFutureTerm");
+    expect(pickHostApp(undefined, null)).toBe("the app you launched this from");
   });
 });

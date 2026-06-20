@@ -77,13 +77,25 @@ function appFromParents() {
   return null;
 }
 
-export function hostAppName() {
+/**
+ * Decide which Accessibility row to name, given the env signals. Pure so it's
+ * testable. VSCode forks (Cursor, Windsurf, VSCodium, …) all report
+ * TERM_PROGRAM="vscode", so for that value the parent-process .app name is more
+ * accurate than the generic "Visual Studio Code" label — a Cursor user must
+ * enable the "Cursor" row, which the term-program label would never surface.
+ */
+export function pickHostApp(termProgram, parentApp) {
+  if (termProgram === "vscode" && parentApp) return parentApp;
   return (
-    appNameFromTermProgram(process.env.TERM_PROGRAM) ||
-    appFromParents() ||
-    process.env.TERM_PROGRAM ||
+    appNameFromTermProgram(termProgram) ||
+    parentApp ||
+    termProgram ||
     "the app you launched this from"
   );
+}
+
+export function hostAppName() {
+  return pickHostApp(process.env.TERM_PROGRAM, appFromParents());
 }
 
 // A lone-modifier tap is a no-op for the focused app but forces macOS to add
