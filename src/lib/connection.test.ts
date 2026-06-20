@@ -258,6 +258,25 @@ describe("Connection", () => {
     c.close();
   });
 
+  it("re-applies the token to the socket after an auto-reconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x", token: "S3C" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      expect(FakeWebSocket.last!.url).toBe("ws://192.168.1.9/ws?t=S3C");
+
+      FakeWebSocket.last!.drop();
+      await vi.advanceTimersByTimeAsync(600); // backoff elapses, new socket opens
+      expect(c.state).toBe("live");
+      expect(FakeWebSocket.last!.url).toBe("ws://192.168.1.9/ws?t=S3C"); // token survived the reconnect
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("updates host/os when the server sends a 'hello' frame", async () => {
     const c = new Connection();
     await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox", os: "mac" });
@@ -577,6 +596,20 @@ describe("Connection", () => {
     device.emit("gattserverdisconnected"); // powered off / out of range
     expect(c.state).toBe("error"); // no longer falsely "live"
     expect(c.fire({ mods: [], key: "x" })).toBe(false); // taps don't silently vanish
+  });
+
+  it("tears down a live WebSocket when switching to Bluetooth (no orphaned socket)", async () => {
+    const device = fakeBleDevice();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+    const ws = FakeWebSocket.last!;
+    expect(ws.closed).toBe(false);
+
+    expect(await c.pairBluetooth()).toBe(true);
+    expect(ws.closed).toBe(true); // old WS closed, not left authenticated and warm
+    expect(c.transport?.kind).toBe("bluetooth");
+    c.close();
   });
 
   it("an intentional BLE close() doesn't report a drop and disconnects GATT", async () => {

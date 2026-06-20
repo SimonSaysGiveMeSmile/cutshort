@@ -58,6 +58,11 @@ describe("pickHostApp", () => {
     expect(pickHostApp("vscode", null)).toBe('Visual Studio Code (shown as "Code")');
   });
 
+  it("keeps the 'shown as Code' hint for genuine VS Code (parent isn't a fork)", () => {
+    expect(pickHostApp("vscode", "Visual Studio Code")).toBe('Visual Studio Code (shown as "Code")');
+    expect(pickHostApp("vscode", "Code")).toBe('Visual Studio Code (shown as "Code")');
+  });
+
   it("falls back to the parent app, then the raw value, then a generic phrase", () => {
     expect(pickHostApp("SomeFutureTerm", "Hyper")).toBe("Hyper");
     expect(pickHostApp("SomeFutureTerm", null)).toBe("SomeFutureTerm");

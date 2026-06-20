@@ -355,6 +355,11 @@ export class Connection {
 
   private async openTransport(p: Pairing, manual: boolean): Promise<boolean> {
     this.clearReconnect();
+    // Tear down any prior transport first so a re-pair (e.g. switching links
+    // while live) can't leave an orphaned, still-authenticated socket beating in
+    // the background. (No-op on the reconnect path, where it's already null.)
+    this.transport?.close();
+    this.transport = null;
     // scheduleReconnect() already moved us to "connecting" for the backoff wait;
     // don't re-emit the same state when the retry timer actually fires.
     if (this.state !== "connecting") this.set("connecting");
@@ -398,6 +403,8 @@ export class Connection {
   async pairBluetooth(): Promise<boolean> {
     this.wantUrl = null; // BLE isn't auto-reconnected; drop any pending WS retry
     this.clearReconnect();
+    this.transport?.close(); // don't leave a live WS socket warm when switching to BLE
+    this.transport = null;
     const myEpoch = ++this.epoch;
     if (!BluetoothTransport.supported()) {
       this.lastError = "Web Bluetooth not supported on this device";

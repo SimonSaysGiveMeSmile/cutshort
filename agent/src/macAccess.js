@@ -85,7 +85,12 @@ function appFromParents() {
  * enable the "Cursor" row, which the term-program label would never surface.
  */
 export function pickHostApp(termProgram, parentApp) {
-  if (termProgram === "vscode" && parentApp) return parentApp;
+  // Only override for an actual FORK — for genuine VS Code the parent resolves to
+  // "Visual Studio Code"/"Code", and we'd lose the curated 'shown as "Code"' hint
+  // (the row really is labelled "Code" in System Settings).
+  if (termProgram === "vscode" && parentApp && !/^(Visual Studio Code|Code)$/.test(parentApp)) {
+    return parentApp;
+  }
   return (
     appNameFromTermProgram(termProgram) ||
     parentApp ||

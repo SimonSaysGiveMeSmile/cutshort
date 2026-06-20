@@ -71,6 +71,18 @@ describe("initial snapshot", () => {
     expect(ids).not.toContain("alsoBad");
   });
 
+  it("drops a custom shortcut whose category isn't a real tab (would be unreachable)", async () => {
+    const s = await freshStore({
+      custom: [
+        { id: "ok", label: "OK", icon: "Star", category: "dev", combo: { mods: [], key: "k" }, custom: true },
+        { id: "orphan", label: "Orphan", icon: "Star", category: "misc", combo: { mods: [], key: "j" }, custom: true },
+      ],
+    });
+    const ids = s.getShortcuts().map((x) => x.id);
+    expect(ids).toContain("ok");
+    expect(ids).not.toContain("orphan");
+  });
+
   it("ignores a non-array hidden value (no per-character garbage ids)", async () => {
     // A stored JSON string would be iterated by `new Set("copy")` into c,o,p,y;
     // pass valid JSON whose value is a string to exercise that path.

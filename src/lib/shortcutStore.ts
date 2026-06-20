@@ -5,7 +5,7 @@
 // localStorage. This is also the surface the (future) embedded customization
 // agent edits — it composes existing Shortcut data, it doesn't generate UI.
 
-import { SHORTCUTS, type CategoryId, type Combo, type Shortcut } from "../shortcuts";
+import { CATEGORIES, SHORTCUTS, type CategoryId, type Combo, type Shortcut } from "../shortcuts";
 
 export interface CustomShortcut extends Shortcut {
   custom: true;
@@ -31,7 +31,9 @@ function isValidCustom(x: unknown): x is CustomShortcut {
     typeof o.id === "string" &&
     typeof o.label === "string" &&
     typeof o.icon === "string" &&
-    typeof o.category === "string" &&
+    // Must be a real category id, else the entry persists but renders in no tab
+    // (the deck/editor only ever filter by the four known categories).
+    CATEGORIES.some((c) => c.id === o.category) &&
     isCombo(o.combo) &&
     (o.mac === undefined || isCombo(o.mac)) &&
     (o.win === undefined || isCombo(o.win))
