@@ -29,6 +29,7 @@ import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
+import { generateToken, tokenFromUrl, tokensMatch, isLoopback } from "./auth.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
   APP_NAME,
@@ -105,6 +106,13 @@ const HOSTNAME = os.hostname().replace(/\.local$/, "");
 const PLATFORM = process.platform === "darwin" ? "mac" : "win";
 const VERSION = "0.1.0";
 
+// Pairing secret. Minted per run, delivered to the phone ONLY via the QR/pairing
+// fragment (never served from an endpoint over LAN/tunnel), and required on the
+// WebSocket upgrade and the control POSTs. Without it, anyone who learns the
+// tunnel URL could inject keystrokes into this desktop session.
+const AUTH_TOKEN = generateToken();
+const isAuthed = (req) => tokensMatch(tokenFromUrl(req.url), AUTH_TOKEN);
+
 // Mutable runtime state shared with the HTTP handlers.
 let PAIR_HTML = null; // rendered once scan targets are known (app mode)
 let CURRENT_SHUTDOWN = () => process.exit(0);
@@ -121,6 +129,11 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
+function forbidden(res) {
+  res.writeHead(403, { "content-type": "application/json" });
+  res.end('{"ok":false,"error":"forbidden"}');
+}
+
 function serveStatic(req, res) {
   const url = (req.url || "/").split("?")[0];
 
@@ -130,18 +143,24 @@ function serveStatic(req, res) {
     return;
   }
   if (req.method === "POST" && url === "/api/quit") {
+    if (!isAuthed(req)) return forbidden(res);
     res.writeHead(200, { "content-type": "application/json" });
     res.end('{"ok":true}');
     setTimeout(() => CURRENT_SHUTDOWN(), 150);
     return;
   }
   if (req.method === "POST" && url === "/api/open-accessibility") {
+    if (!isAuthed(req)) return forbidden(res);
     openAccessibilityPane();
     res.writeHead(200, { "content-type": "application/json" });
     res.end('{"ok":true}');
     return;
   }
   if (url === "/pair") {
+    // The pairing page embeds the token (in the QR images and its own control
+    // calls), so it must never be served beyond this machine — otherwise the
+    // token would leak to anyone who can reach the LAN/tunnel address.
+    if (!isLoopback(req.socket.remoteAddress)) return forbidden(res);
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
       PAIR_HTML ||
@@ -176,7 +195,15 @@ function serveStatic(req, res) {
 const server = http.createServer(serveStatic);
 
 // ── WebSocket: receive combos, inject keystrokes ───────────────────
-const wss = new WebSocketServer({ server, path: "/ws" });
+// Reject the upgrade unless it carries the pairing token, and cap the frame
+// size — key frames are tiny, so a large payload is either a bug or an attempt
+// to exhaust memory.
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  maxPayload: 4096,
+  verifyClient: ({ req }) => isAuthed(req),
+});
 
 wss.on("connection", (ws, req) => {
   const peer = req.socket.remoteAddress;
@@ -243,17 +270,22 @@ server.listen(PORT, "0.0.0.0", async () => {
   // own origin, the app connects same-origin to /ws. Hosted fallback: open the
   // deck with the WS endpoint in a #connect= param. LAN+hosted is intentionally
   // skipped (an https page can't open an insecure ws:// to your LAN).
+  // The token rides in the URL fragment for self-served decks (#t=… — never sent
+  // to the server, only read by the app after a scan) and as a ?t= query for the
+  // ws:// paste / hosted-fallback paths.
   const entries = [];
   if (lan) {
-    if (HAS_APP) entries.push({ label: "Same WiFi (LAN)", url: `http://${lan}:${PORT}/` });
-    else entries.push({ label: "Same WiFi — paste in app", url: `ws://${lan}:${PORT}/ws` });
+    if (HAS_APP) entries.push({ label: "Same WiFi (LAN)", url: `http://${lan}:${PORT}/#t=${AUTH_TOKEN}` });
+    else entries.push({ label: "Same WiFi — paste in app", url: `ws://${lan}:${PORT}/ws?t=${AUTH_TOKEN}` });
   }
 
   console.log("\n🌐  Opening public tunnel…");
   const tunnel = await openTunnel(PORT);
   if (tunnel) {
-    const wsUrl = tunnel.url.replace(/^https/, "wss") + "/ws";
-    const scan = HAS_APP ? `${tunnel.url}/` : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
+    const wsUrl = tunnel.url.replace(/^https/, "wss") + "/ws?t=" + AUTH_TOKEN;
+    const scan = HAS_APP
+      ? `${tunnel.url}/#t=${AUTH_TOKEN}`
+      : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
     entries.push({ label: `Anywhere (${tunnel.provider})`, url: scan });
     CURRENT_SHUTDOWN = () => {
       tunnel.close();
@@ -276,7 +308,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   if (AS_APP) {
     // No terminal: render the pairing page (the already-open browser tab picks
     // it up on its next refresh).
-    PAIR_HTML = await renderPairPage({ entries, appName: APP_NAME });
+    PAIR_HTML = await renderPairPage({ entries, appName: APP_NAME, token: AUTH_TOKEN });
     console.log("Pairing page ready at /pair");
   } else {
     // Terminal: print the QR(s) inline as before.

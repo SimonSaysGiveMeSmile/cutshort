@@ -17,8 +17,9 @@ const esc = (s) =>
 /**
  * @param {{label:string,url:string}[]} entries  scan targets (LAN / tunnel)
  * @param {string} appName   bundle name shown in the UI + Accessibility row
+ * @param {string} [token]   pairing token, required by the control endpoints
  */
-export async function renderPairPage({ entries, appName }) {
+export async function renderPairPage({ entries, appName, token }) {
   const cards = await Promise.all(
     entries.map(async (e) => {
       const data = await QRCode.toDataURL(e.url, { margin: 1, width: 320, errorCorrectionLevel: "M" });
@@ -132,9 +133,10 @@ export async function renderPairPage({ entries, appName }) {
   </footer>
 
   <script>
-    function openAccess(b) { fetch('/api/open-accessibility', { method: 'POST' }); b.textContent = 'OPENED SETTINGS ✓'; }
+    const Q = ${JSON.stringify(token ? `?t=${token}` : "")};
+    function openAccess(b) { fetch('/api/open-accessibility' + Q, { method: 'POST' }); b.textContent = 'OPENED SETTINGS ✓'; }
     function stop() {
-      fetch('/api/quit', { method: 'POST' }).finally(() => {
+      fetch('/api/quit' + Q, { method: 'POST' }).finally(() => {
         document.body.innerHTML = '<p style="font-family:ui-monospace,monospace;color:#888;padding:3rem;text-align:center;letter-spacing:.12em">CUTSHORT AGENT STOPPED — you can close this tab.</p>';
       });
     }
