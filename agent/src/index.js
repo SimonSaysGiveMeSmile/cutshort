@@ -174,12 +174,32 @@ function serveStatic(req, res) {
     res.end("CutShort agent is running. Scan the QR from the terminal/browser to open the deck.");
     return;
   }
-  let urlPath = decodeURIComponent(url);
+  let urlPath;
+  try {
+    urlPath = decodeURIComponent(url);
+  } catch {
+    return forbidden(res); // malformed percent-encoding
+  }
+  if (urlPath.includes("\0")) return forbidden(res); // poison null byte
   if (urlPath === "/") urlPath = "/index.html";
-  let filePath = path.join(DIST, urlPath);
-  // SPA fallback: unknown non-asset routes -> index.html
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    filePath = path.join(DIST, "index.html");
+  // Containment: resolve against DIST with a leading "." so absolute-looking or
+  // "../"-laden requests (which survive Node's un-normalized req.url) can't
+  // escape the served directory and read arbitrary files over the tunnel.
+  const distRoot = path.resolve(DIST);
+  const resolved = path.resolve(distRoot, "." + urlPath);
+  if (resolved !== distRoot && !resolved.startsWith(distRoot + path.sep)) {
+    return forbidden(res);
+  }
+  let filePath = resolved;
+  // SPA fallback: unknown non-asset routes -> index.html. Guard the stat so a
+  // TOCTOU race (file removed/replaced mid-request) can't throw and crash the
+  // whole HTTP+WS server.
+  try {
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(distRoot, "index.html");
+    }
+  } catch {
+    filePath = path.join(distRoot, "index.html");
   }
   fs.readFile(filePath, (err, data) => {
     if (err) {
