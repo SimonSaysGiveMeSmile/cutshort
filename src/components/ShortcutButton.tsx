@@ -26,7 +26,8 @@ export function ShortcutButton({ shortcut, os, onFire }: Props) {
       el.appendChild(r);
       setTimeout(() => r.remove(), 600);
     }
-    if ("vibrate" in navigator) navigator.vibrate?.(8);
+    // Haptics are owned by fire()'s tapFeedback(sent) so success and failure feel
+    // distinct — buzzing here too would double the tap and corrupt the "nope".
     onFire(shortcut);
   }
 

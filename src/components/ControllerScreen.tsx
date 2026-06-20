@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Palette, Command as CommandIcon, Sun, Moon, SlidersHorizontal, WifiOff } from "lucide-react";
 import { ShortcutButton } from "./ShortcutButton";
 import { Icon } from "./Icon";
@@ -37,6 +37,11 @@ export function ControllerScreen({
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
   const shortcuts = useSyncExternalStore(subscribe, getShortcuts);
+  // Held in a ref so rapid taps actually clear the previous dismiss timer — a
+  // value stashed on the function object would be lost on every re-render, so an
+  // older timer would blank the toast for the key the user just pressed.
+  const toastTimer = useRef<number>(0);
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   function fire(s: Shortcut) {
     connection.os = os;
@@ -45,14 +50,20 @@ export function ControllerScreen({
     // never reached the Mac, so don't fake a "fired" toast.
     const sent = connection.fire(combo);
     tapFeedback(sent); // physical confirmation: short tick if it fired, "nope" buzz if not
-    if (!sent && state === "error") connection.retry(); // tapping a key wakes a given-up link
+    const reconnecting = !sent && state === "error";
+    if (reconnecting) connection.retry(); // tapping a key wakes a given-up link
     setToast(
       sent
         ? { text: `${s.label} · ${comboLabel(combo, os)}`, ok: true }
-        : { text: state === "connecting" ? "Reconnecting…" : "Not connected", ok: false },
+        : {
+            // `state` is still "error" in this render even though retry() just
+            // moved us to "connecting", so reflect the kicked-off attempt here.
+            text: state === "connecting" || reconnecting ? "Reconnecting…" : "Not connected",
+            ok: false,
+          },
     );
-    window.clearTimeout((fire as any)._t);
-    (fire as any)._t = window.setTimeout(() => setToast(null), 1100);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 1100);
   }
 
   const keys = shortcuts.filter((s) => s.category === cat);
@@ -105,11 +116,11 @@ export function ControllerScreen({
       </div>
 
       <div className="cats">
-        <div className="seg" style={{ marginRight: 6 }}>
-          <button data-on={os === "mac"} onClick={() => setOS("mac")}>
+        <div className="seg" style={{ marginRight: 6 }} role="group" aria-label="Target OS">
+          <button data-on={os === "mac"} aria-pressed={os === "mac"} onClick={() => setOS("mac")}>
             macOS
           </button>
-          <button data-on={os === "win"} onClick={() => setOS("win")}>
+          <button data-on={os === "win"} aria-pressed={os === "win"} onClick={() => setOS("win")}>
             Windows
           </button>
         </div>
@@ -118,6 +129,7 @@ export function ControllerScreen({
             key={c.id}
             className="cat"
             data-on={c.id === cat}
+            aria-pressed={c.id === cat}
             onClick={() => setCat(c.id)}
           >
             <Icon name={c.icon} size={15} strokeWidth={1.8} />

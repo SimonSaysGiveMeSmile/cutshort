@@ -18,6 +18,7 @@ import {
   restoreBuiltin,
   builtins,
 } from "../lib/shortcutStore";
+import { useDialog } from "../lib/dialog";
 
 const MODS: ModToken[] = ["MOD", "SHIFT", "ALT", "CTRL", "SUPER"];
 
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function EditSheet({ os, category, onClose }: Props) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [cat, setCat] = useState<CategoryId>(category);
   const [, force] = useState(0); // re-render after store mutations
   const refresh = () => force((n) => n + 1);
@@ -59,14 +61,27 @@ export function EditSheet({ os, category, onClose }: Props) {
 
   return (
     <>
-      <div className="sheet-scrim" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-label="Customize deck">
+      <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Customize deck"
+        tabIndex={-1}
+        ref={dialogRef}
+      >
         <div className="sheet-grip" />
         <h2>Customize deck</h2>
 
         <div className="cats" style={{ padding: "0 0 12px" }}>
           {CATEGORIES.map((c) => (
-            <button key={c.id} className="cat" data-on={c.id === cat} onClick={() => setCat(c.id)}>
+            <button
+              key={c.id}
+              className="cat"
+              data-on={c.id === cat}
+              aria-pressed={c.id === cat}
+              onClick={() => setCat(c.id)}
+            >
               <Icon name={c.icon} size={15} strokeWidth={1.8} />
               {c.label}
             </button>
@@ -135,7 +150,13 @@ export function EditSheet({ os, category, onClose }: Props) {
 
           <div className="mod-chips">
             {MODS.map((m) => (
-              <button key={m} className="mod-chip" data-on={mods.includes(m)} onClick={() => toggleMod(m)}>
+              <button
+                key={m}
+                className="mod-chip"
+                data-on={mods.includes(m)}
+                aria-pressed={mods.includes(m)}
+                onClick={() => toggleMod(m)}
+              >
                 {m === "MOD" ? (os === "mac" ? "⌘ Cmd" : "Ctrl") : m === "SUPER" ? (os === "mac" ? "⌘" : "Win") : m}
               </button>
             ))}
@@ -152,7 +173,14 @@ export function EditSheet({ os, category, onClose }: Props) {
 
           <div className="icon-grid">
             {ICON_NAMES.map((n) => (
-              <button key={n} className="icon-pick" data-on={n === icon} onClick={() => setIcon(n)} aria-label={n}>
+              <button
+                key={n}
+                className="icon-pick"
+                data-on={n === icon}
+                aria-pressed={n === icon}
+                onClick={() => setIcon(n)}
+                aria-label={n}
+              >
                 <Icon name={n} size={20} />
               </button>
             ))}

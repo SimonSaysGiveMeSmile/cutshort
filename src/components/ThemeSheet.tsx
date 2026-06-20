@@ -1,4 +1,5 @@
 import { applyTheme, THEMES } from "../themes";
+import { useDialog } from "../lib/dialog";
 
 interface Props {
   current: string;
@@ -7,10 +8,18 @@ interface Props {
 }
 
 export function ThemeSheet({ current, onPick, onClose }: Props) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
   return (
     <>
-      <div className="sheet-scrim" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-label="Choose a theme">
+      <div className="sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose a theme"
+        tabIndex={-1}
+        ref={dialogRef}
+      >
         <div className="sheet-grip" />
         <h2>Skins</h2>
         <div className="theme-list">
@@ -19,6 +28,7 @@ export function ThemeSheet({ current, onPick, onClose }: Props) {
               key={t.id}
               className="theme-card"
               data-on={t.id === current}
+              aria-pressed={t.id === current}
               onClick={() => {
                 applyTheme(t.id);
                 onPick(t.id);
