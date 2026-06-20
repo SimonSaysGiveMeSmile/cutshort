@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   THEMES,
   DEFAULT_THEME,
@@ -63,6 +63,17 @@ describe("loadMode", () => {
   it("ignores a garbage saved mode and uses native", () => {
     localStorage.setItem("cutshort.mode", "purple");
     expect(loadMode("neon")).toBe("dark");
+  });
+});
+
+describe("storage access that throws", () => {
+  it("falls back to defaults instead of crashing when getItem throws", () => {
+    const spy = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError: storage blocked");
+    });
+    expect(loadTheme()).toBe(DEFAULT_THEME);
+    expect(loadMode("neon")).toBe("dark"); // native mode of the dark theme
+    spy.mockRestore();
   });
 });
 

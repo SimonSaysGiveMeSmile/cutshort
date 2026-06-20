@@ -162,6 +162,9 @@ const WIN_GLYPHS: Record<string, string> = {
 
 /** Human-readable combo string, e.g. "⌘⇧R" (mac) or "Ctrl+Shift+R" (win). */
 export function comboLabel(combo: Combo, os: OS): string {
+  // Defensive: a malformed combo (from corrupt storage) must not throw on the
+  // hot render path. shortcutStore validates on load; this is cheap insurance.
+  if (!combo || !Array.isArray(combo.mods) || typeof combo.key !== "string") return "";
   const map = os === "mac" ? MAC_GLYPHS : WIN_GLYPHS;
   const parts = [...combo.mods.map((m) => map[m] ?? m), map[combo.key] ?? combo.key.toUpperCase()];
   return os === "mac" ? parts.join("") : parts.join("+");

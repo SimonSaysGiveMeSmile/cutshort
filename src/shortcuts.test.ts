@@ -80,6 +80,14 @@ describe("comboLabel — win (words, + separator)", () => {
   });
 });
 
+describe("comboLabel — malformed input", () => {
+  it("returns '' instead of throwing on a nullish or shapeless combo", () => {
+    expect(comboLabel(undefined as unknown as Combo, "mac")).toBe("");
+    expect(comboLabel({ key: "c" } as unknown as Combo, "mac")).toBe(""); // no mods array
+    expect(comboLabel({ mods: [] } as unknown as Combo, "win")).toBe(""); // no key
+  });
+});
+
 describe("SHORTCUTS / CATEGORIES data integrity", () => {
   it("has unique shortcut ids", () => {
     const ids = SHORTCUTS.map((s) => s.id);

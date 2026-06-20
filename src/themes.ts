@@ -90,9 +90,14 @@ export const DEFAULT_THEME = "liquid-glass";
 export type Mode = "light" | "dark";
 
 export function loadTheme(): string {
-  if (typeof localStorage === "undefined") return DEFAULT_THEME;
-  const saved = localStorage.getItem("cutshort.theme");
-  return THEMES.some((t) => t.id === saved) ? (saved as string) : DEFAULT_THEME;
+  try {
+    const saved = localStorage.getItem("cutshort.theme");
+    return THEMES.some((t) => t.id === saved) ? (saved as string) : DEFAULT_THEME;
+  } catch {
+    // localStorage can throw on access (sandboxed iframe, some privacy modes),
+    // not just be undefined — both must fall back to the default, not crash boot.
+    return DEFAULT_THEME;
+  }
 }
 
 /** The mode a theme ships in by default. */
@@ -101,13 +106,16 @@ export function nativeMode(id: string): Mode {
 }
 
 /**
- * Resolve the active mode: an explicit user choice wins; otherwise we follow
- * the current theme's native mode. Returns null only before any theme is set.
+ * Resolve the active mode: an explicit user choice wins; otherwise we follow the
+ * current theme's native mode. Always returns a concrete Mode (never null).
  */
 export function loadMode(themeId: string): Mode {
-  if (typeof localStorage === "undefined") return nativeMode(themeId);
-  const saved = localStorage.getItem("cutshort.mode") as Mode | null;
-  return saved === "light" || saved === "dark" ? saved : nativeMode(themeId);
+  try {
+    const saved = localStorage.getItem("cutshort.mode") as Mode | null;
+    return saved === "light" || saved === "dark" ? saved : nativeMode(themeId);
+  } catch {
+    return nativeMode(themeId);
+  }
 }
 
 function paintMeta(mode: Mode) {

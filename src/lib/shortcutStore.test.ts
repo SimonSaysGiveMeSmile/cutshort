@@ -55,6 +55,28 @@ describe("initial snapshot", () => {
     const s = await freshStore({ custom: "}{not json", hidden: "also broken" });
     expect(s.getShortcuts().map((x) => x.id)).toEqual(s.builtins.map((x) => x.id));
   });
+
+  it("drops custom entries with a malformed shape instead of crashing the deck", async () => {
+    const s = await freshStore({
+      custom: [
+        { id: "good", label: "Good", icon: "Star", category: "dev", combo: { mods: [], key: "k" }, custom: true },
+        { id: "bad", label: "No combo", icon: "Star", category: "dev" }, // missing combo → would throw in render
+        { id: "alsoBad", label: "Bad combo", icon: "Star", category: "dev", combo: { key: "k" } }, // combo.mods missing
+        "not even an object",
+      ],
+    });
+    const ids = s.getShortcuts().map((x) => x.id);
+    expect(ids).toContain("good");
+    expect(ids).not.toContain("bad");
+    expect(ids).not.toContain("alsoBad");
+  });
+
+  it("ignores a non-array hidden value (no per-character garbage ids)", async () => {
+    // A stored JSON string would be iterated by `new Set("copy")` into c,o,p,y;
+    // pass valid JSON whose value is a string to exercise that path.
+    const s = await freshStore({ hidden: '"copy"' });
+    expect(s.getShortcuts().map((x) => x.id)).toEqual(s.builtins.map((x) => x.id));
+  });
 });
 
 describe("mutations", () => {

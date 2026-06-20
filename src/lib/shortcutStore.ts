@@ -14,17 +14,44 @@ export interface CustomShortcut extends Shortcut {
 const KEY_CUSTOM = "cutshort.custom";
 const KEY_HIDDEN = "cutshort.hidden";
 
+function isCombo(c: unknown): c is Combo {
+  if (typeof c !== "object" || c === null) return false;
+  const o = c as Record<string, unknown>;
+  return Array.isArray(o.mods) && o.mods.every((m) => typeof m === "string") && typeof o.key === "string";
+}
+
+// Stored custom shortcuts flow unvalidated into the render path (comboLabel reads
+// combo.mods/combo.key), so one malformed/old/hand-edited record would throw and
+// white-screen the whole deck. Accept only well-formed entries; silently drop the
+// rest rather than crash.
+function isValidCustom(x: unknown): x is CustomShortcut {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.label === "string" &&
+    typeof o.icon === "string" &&
+    typeof o.category === "string" &&
+    isCombo(o.combo) &&
+    (o.mac === undefined || isCombo(o.mac)) &&
+    (o.win === undefined || isCombo(o.win))
+  );
+}
+
 function loadCustom(): CustomShortcut[] {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY_CUSTOM) || "[]");
-    return Array.isArray(raw) ? raw : [];
+    return Array.isArray(raw) ? raw.filter(isValidCustom) : [];
   } catch {
     return [];
   }
 }
 function loadHidden(): Set<string> {
   try {
-    return new Set(JSON.parse(localStorage.getItem(KEY_HIDDEN) || "[]"));
+    const raw = JSON.parse(localStorage.getItem(KEY_HIDDEN) || "[]");
+    // Accept only an array of string ids — a stored JSON string would otherwise
+    // be iterated into per-character garbage ids by `new Set("copy")`.
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []);
   } catch {
     return new Set();
   }
