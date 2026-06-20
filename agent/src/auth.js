@@ -31,12 +31,3 @@ export function tokensMatch(a, b) {
   if (ba.length !== bb.length) return false;
   return crypto.timingSafeEqual(ba, bb);
 }
-
-/** True if the request came from the loopback interface (not LAN / tunnel). */
-export function isLoopback(remoteAddress) {
-  return (
-    remoteAddress === "127.0.0.1" ||
-    remoteAddress === "::1" ||
-    remoteAddress === "::ffff:127.0.0.1"
-  );
-}

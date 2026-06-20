@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, tokenFromUrl, tokensMatch, isLoopback } from "./auth.js";
+import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
 
 describe("generateToken", () => {
   it("returns a non-empty URL-safe string", () => {
@@ -60,19 +60,5 @@ describe("tokensMatch", () => {
     const t = generateToken();
     expect(tokensMatch(t, t)).toBe(true);
     expect(tokensMatch(t, generateToken())).toBe(false);
-  });
-});
-
-describe("isLoopback", () => {
-  it("recognizes IPv4, IPv6, and mapped loopback", () => {
-    expect(isLoopback("127.0.0.1")).toBe(true);
-    expect(isLoopback("::1")).toBe(true);
-    expect(isLoopback("::ffff:127.0.0.1")).toBe(true);
-  });
-
-  it("rejects LAN and public addresses", () => {
-    expect(isLoopback("192.168.1.9")).toBe(false);
-    expect(isLoopback("10.0.0.4")).toBe(false);
-    expect(isLoopback(undefined)).toBe(false);
   });
 });

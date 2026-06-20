@@ -29,7 +29,7 @@ import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
-import { generateToken, tokenFromUrl, tokensMatch, isLoopback } from "./auth.js";
+import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
   APP_NAME,
@@ -148,38 +148,22 @@ function forbidden(res) {
   res.end('{"ok":false,"error":"forbidden"}');
 }
 
-function serveStatic(req, res) {
+function withinDist(p, distRoot) {
+  return p === distRoot || p.startsWith(distRoot + path.sep);
+}
+
+// ── public surface (LAN + tunnel): SPA + token-gated /ws ONLY ───────
+// The pairing page and control POSTs are deliberately NOT here: the page embeds
+// the token and the POSTs act on it, so they live on a separate loopback-only
+// server (serveLocal) the tunnel can't reach. A remoteAddress check can't guard
+// them on this listener — cloudflared/ngrok forward from localhost, so every
+// tunnel request would look loopback.
+function servePublic(req, res) {
   const url = (req.url || "/").split("?")[0];
 
   if (url === "/health" || url === "/api/ping") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, host: HOSTNAME, os: PLATFORM, version: VERSION }));
-    return;
-  }
-  if (req.method === "POST" && url === "/api/quit") {
-    if (!isAuthed(req)) return forbidden(res);
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"ok":true}');
-    setTimeout(() => CURRENT_SHUTDOWN(), 150);
-    return;
-  }
-  if (req.method === "POST" && url === "/api/open-accessibility") {
-    if (!isAuthed(req)) return forbidden(res);
-    openAccessibilityPane();
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end('{"ok":true}');
-    return;
-  }
-  if (url === "/pair") {
-    // The pairing page embeds the token (in the QR images and its own control
-    // calls), so it must never be served beyond this machine — otherwise the
-    // token would leak to anyone who can reach the LAN/tunnel address.
-    if (!isLoopback(req.socket.remoteAddress)) return forbidden(res);
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(
-      PAIR_HTML ||
-        `<!doctype html><meta http-equiv="refresh" content="1"><body style="font-family:system-ui;background:#0a0b0e;color:#9aa3ad;padding:3rem;text-align:center">Starting ${APP_NAME}… this page will refresh.</body>`,
-    );
     return;
   }
 
@@ -201,17 +185,16 @@ function serveStatic(req, res) {
   // escape the served directory and read arbitrary files over the tunnel.
   const distRoot = path.resolve(DIST);
   const resolved = path.resolve(distRoot, "." + urlPath);
-  if (resolved !== distRoot && !resolved.startsWith(distRoot + path.sep)) {
-    return forbidden(res);
-  }
+  if (!withinDist(resolved, distRoot)) return forbidden(res);
   let filePath = resolved;
-  // SPA fallback: unknown non-asset routes -> index.html. Guard the stat so a
-  // TOCTOU race (file removed/replaced mid-request) can't throw and crash the
-  // whole HTTP+WS server.
+  // SPA fallback + crash-safe stat + symlink containment: realpath collapses any
+  // symlink inside dist that points outside, which the lexical check above can't
+  // catch. A missing file / removed-mid-request (TOCTOU) falls back to index.html
+  // instead of throwing and taking down the whole HTTP+WS server.
   try {
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      filePath = path.join(distRoot, "index.html");
-    }
+    const real = fs.realpathSync(filePath);
+    if (!withinDist(real, distRoot)) return forbidden(res);
+    filePath = fs.statSync(real).isDirectory() ? path.join(distRoot, "index.html") : real;
   } catch {
     filePath = path.join(distRoot, "index.html");
   }
@@ -226,7 +209,45 @@ function serveStatic(req, res) {
   });
 }
 
-const server = http.createServer(serveStatic);
+// ── loopback-only control surface: pairing page + management POSTs ──
+// Bound to 127.0.0.1 (never 0.0.0.0), so the public tunnel — which forwards to
+// the 0.0.0.0 port — physically cannot reach it. This is what keeps the
+// token-bearing pairing page from leaking to anyone who knows the tunnel URL.
+function serveLocal(req, res) {
+  const url = (req.url || "/").split("?")[0];
+  if (req.method === "POST" && url === "/api/quit") {
+    if (!isAuthed(req)) return forbidden(res);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"ok":true}');
+    setTimeout(() => CURRENT_SHUTDOWN(), 150);
+    return;
+  }
+  if (req.method === "POST" && url === "/api/open-accessibility") {
+    if (!isAuthed(req)) return forbidden(res);
+    openAccessibilityPane();
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"ok":true}');
+    return;
+  }
+  if (url === "/pair") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(
+      PAIR_HTML ||
+        `<!doctype html><meta http-equiv="refresh" content="1"><body style="font-family:system-ui;background:#0a0b0e;color:#9aa3ad;padding:3rem;text-align:center">Starting ${APP_NAME}… this page will refresh.</body>`,
+    );
+    return;
+  }
+  res.writeHead(404);
+  res.end("not found");
+}
+
+const server = http.createServer(servePublic);
+
+// Loopback-only listener for /pair + control POSTs; its ephemeral port is
+// chosen at listen() time (see boot). Never bound to 0.0.0.0.
+const localServer = http.createServer(serveLocal);
+let LOCAL_PORT = 0;
+localServer.on("error", (e) => console.error("Local control server error:", e));
 
 // Without an 'error' listener, a bind failure (EADDRINUSE from a second agent or
 // a leftover process) is thrown as an uncaught exception — in app mode the user
@@ -240,7 +261,9 @@ server.on("error", (e) => {
   } else {
     console.error("Server error:", e);
   }
-  clearPid();
+  // Do NOT clearPid() here: a failed bind never wrote a pid, and the pid file
+  // belongs to the agent already running on this port — clearing it would orphan
+  // that still-running agent (it could no longer be found by --stop).
   process.exit(1);
 });
 
@@ -295,10 +318,17 @@ async function printQR(url, label) {
 server.listen(PORT, "0.0.0.0", async () => {
   if (AS_APP) {
     writePid();
-    // Open the pairing page right away; it shows "Starting…" and auto-refreshes
-    // to the QR once the tunnel resolves. (CUTSHORT_NO_OPEN suppresses all
+    // Serve the token-bearing pairing page on a loopback-only listener (the
+    // tunnel forwards to the public port, so it can't reach this one) and open
+    // the browser straight to it. It shows "Starting…" and auto-refreshes to the
+    // QR once the tunnel resolves. (CUTSHORT_NO_OPEN suppresses all
     // browser/Settings/keystroke side effects — for headless or test runs.)
-    if (!process.env.CUTSHORT_NO_OPEN) exec(`open "http://127.0.0.1:${PORT}/pair"`);
+    localServer.listen(0, "127.0.0.1", () => {
+      LOCAL_PORT = localServer.address().port;
+      const pairUrl = `http://127.0.0.1:${LOCAL_PORT}/pair`;
+      console.log(`Pairing page: ${pairUrl}  (open it if it didn't pop up)`);
+      if (!process.env.CUTSHORT_NO_OPEN) exec(`open "${pairUrl}"`);
+    });
   }
 
   const lan = lanIPv4s()[0];
