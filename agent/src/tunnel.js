@@ -18,6 +18,31 @@ export function extractNgrokUrl(text) {
   return m ? m[1] : null;
 }
 
+// Reap spawned tunnel children on ANY agent exit. close() handles the normal
+// path, but the child is already running during the up-to-30s startup await
+// (before close() is wired up) and on a hard exit close() never runs — without
+// this, a Ctrl-C/SIGTERM/crash in that window orphans cloudflared, leaving a
+// public URL pointing at a dead port.
+const liveChildren = new Set();
+let reaperInstalled = false;
+function track(proc) {
+  liveChildren.add(proc);
+  proc.on("exit", () => liveChildren.delete(proc));
+  if (!reaperInstalled) {
+    reaperInstalled = true;
+    process.on("exit", () => {
+      for (const c of liveChildren) {
+        try {
+          c.kill("SIGTERM");
+        } catch {
+          /* already gone */
+        }
+      }
+    });
+  }
+  return proc;
+}
+
 function findBinary(name) {
   const candidates = [
     `/opt/homebrew/bin/${name}`,
@@ -48,9 +73,11 @@ async function tryCloudflared(port) {
   const bin = await findBinary("cloudflared");
   if (!bin) return null;
   try {
-    const proc = spawn(bin, ["tunnel", "--url", `http://localhost:${port}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const proc = track(
+      spawn(bin, ["tunnel", "--url", `http://localhost:${port}`], {
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
     const url = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         try {
@@ -100,9 +127,11 @@ async function tryNgrok(port) {
   const bin = await findBinary("ngrok");
   if (!bin) return null;
   try {
-    const proc = spawn(bin, ["http", String(port), "--log=stdout", "--log-format=logfmt"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const proc = track(
+      spawn(bin, ["http", String(port), "--log=stdout", "--log-format=logfmt"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
     const url = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("ngrok timeout")), 15000);
       let buf = "";

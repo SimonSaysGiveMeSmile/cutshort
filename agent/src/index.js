@@ -115,7 +115,21 @@ const isAuthed = (req) => tokensMatch(tokenFromUrl(req.url), AUTH_TOKEN);
 
 // Mutable runtime state shared with the HTTP handlers.
 let PAIR_HTML = null; // rendered once scan targets are known (app mode)
-let CURRENT_SHUTDOWN = () => process.exit(0);
+let CURRENT_SHUTDOWN = () => {
+  clearPid();
+  process.exit(0);
+};
+
+// Register the shutdown signals up front (through a wrapper so the latest
+// CURRENT_SHUTDOWN runs): a Ctrl-C/SIGTERM during the up-to-30s tunnel-open
+// window must still tear down cleanly instead of orphaning the tunnel.
+process.on("SIGINT", () => CURRENT_SHUTDOWN());
+process.on("SIGTERM", () => CURRENT_SHUTDOWN());
+
+// Long-lived event-driven daemon — in app mode there's no terminal, so a stray
+// async error must not kill it silently. Log and keep serving.
+process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
+process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // ── static file server (serves the SPA + a few control routes) ─────
 const MIME = {
@@ -213,6 +227,22 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer(serveStatic);
+
+// Without an 'error' listener, a bind failure (EADDRINUSE from a second agent or
+// a leftover process) is thrown as an uncaught exception — in app mode the user
+// just sees the /pair tab stuck on "Starting…" forever. Fail loudly and clean.
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(
+      `Port ${PORT} is already in use — is another ${APP_NAME} agent running? ` +
+        `Stop it with "cutshort-agent --stop", or pick another port with --port.`,
+    );
+  } else {
+    console.error("Server error:", e);
+  }
+  clearPid();
+  process.exit(1);
+});
 
 // ── WebSocket: receive combos, inject keystrokes ───────────────────
 // Reject the upgrade unless it carries the pairing token, and cap the frame
@@ -322,14 +352,17 @@ server.listen(PORT, "0.0.0.0", async () => {
     console.log("     winget install cloudflare.cloudflared   (Windows)");
     console.log("   LAN access above still works on the same WiFi.");
   }
-  process.on("SIGINT", CURRENT_SHUTDOWN);
-  process.on("SIGTERM", CURRENT_SHUTDOWN);
 
   if (AS_APP) {
     // No terminal: render the pairing page (the already-open browser tab picks
-    // it up on its next refresh).
-    PAIR_HTML = await renderPairPage({ entries, appName: APP_NAME, token: AUTH_TOKEN });
-    console.log("Pairing page ready at /pair");
+    // it up on its next refresh). A render failure must not crash the daemon —
+    // the tab keeps showing the auto-refreshing "Starting…" placeholder.
+    try {
+      PAIR_HTML = await renderPairPage({ entries, appName: APP_NAME, token: AUTH_TOKEN });
+      console.log("Pairing page ready at /pair");
+    } catch (e) {
+      console.error("Failed to render pairing page:", e);
+    }
   } else {
     // Terminal: print the QR(s) inline as before.
     for (const e of entries) {
