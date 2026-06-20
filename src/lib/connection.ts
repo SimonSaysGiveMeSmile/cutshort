@@ -47,12 +47,14 @@ export function parsePairing(raw: string): Pairing | null {
   const text = raw.trim();
   if (!text) return null;
   try {
-    const u = new URL(text.replace(/^cutshort:\/\//, "https://"));
-    const wsUrl = text.startsWith("cutshort://")
-      ? text.replace(/^cutshort:\/\//, "wss://")
-      : toWs(text);
+    // Normalize every input (http/https/ws/wss/cutshort) through the same
+    // pipeline so the resulting url always points at the agent's /ws endpoint.
+    // Query params (host/os/t) are lifted into the Pairing and dropped from the
+    // url; the token is re-applied to the socket URL at connect time.
+    const httpish = text.replace(/^cutshort:\/\//, "https://");
+    const u = new URL(httpish);
     return {
-      url: wsUrl,
+      url: toWs(httpish),
       host: u.searchParams.get("host") ?? u.hostname,
       os: (u.searchParams.get("os") as OS) ?? undefined,
       token: u.searchParams.get("t") ?? undefined,
@@ -63,11 +65,19 @@ export function parsePairing(raw: string): Pairing | null {
 }
 
 function toWs(url: string): string {
-  // Normalize an http(s):// origin to its ws(s):// /ws endpoint.
+  // Normalize any origin to its ws(s):// /ws endpoint, preserving TLS for both
+  // https:// and wss:// inputs (a bare wss:// paste must not be downgraded).
   const u = new URL(url);
-  const proto = u.protocol === "https:" ? "wss:" : "ws:";
+  const secure = u.protocol === "https:" || u.protocol === "wss:";
+  const proto = secure ? "wss:" : "ws:";
   const pathHasWs = u.pathname.endsWith("/ws");
   return `${proto}//${u.host}${pathHasWs ? u.pathname : "/ws"}`;
+}
+
+/** Append a query param to a (possibly already query-bearing) URL. */
+function appendQuery(url: string, key: string, value: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}${key}=${encodeURIComponent(value)}`;
 }
 
 /**
@@ -88,7 +98,12 @@ export function detectAgent(): Pairing | null {
   const isViteDev = /^localhost:5173$|^127\.0\.0\.1:5173$/.test(host);
   if (!isHosted && !isViteDev && host) {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    return { url: `${proto}//${host}/ws`, host: location.hostname };
+    // The agent puts the pairing token in the QR's URL fragment (#t=…) so the
+    // same-origin deck can read it without it ever hitting the server logs.
+    const token = hash.get("t") ?? undefined;
+    const p: Pairing = { url: `${proto}//${host}/ws`, host: location.hostname };
+    if (token) p.token = token;
+    return p;
   }
   return null;
 }
@@ -112,8 +127,10 @@ class WsTransport implements Transport {
   private static readonly PING_INTERVAL_MS = 25_000;
   private static readonly PONG_TIMEOUT_MS = 10_000;
 
-  constructor(url: string, kind: "lan" | "tunnel") {
-    this.url = url;
+  constructor(url: string, kind: "lan" | "tunnel", token?: string) {
+    // The agent authenticates the upgrade by the ?t= token, so carry it on the
+    // socket URL itself (works for same-origin, LAN paste, and tunnel alike).
+    this.url = token ? appendQuery(url, "t", token) : url;
     this.kind = kind;
   }
 
@@ -290,6 +307,10 @@ export class Connection {
   private wantUrl: Pairing | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
+  // Bumped on every pair/retry/reconnect/close. A connect() that resolves after
+  // its epoch was superseded (e.g. close() or a fresh pair() ran mid-handshake)
+  // tears itself down instead of resurrecting as the live transport.
+  private epoch = 0;
   private static readonly MAX_BACKOFF_MS = 10_000;
   private static readonly MAX_ATTEMPTS = 8;
   private listeners = new Set<(s: ConnState) => void>();
@@ -314,7 +335,6 @@ export class Connection {
    * auto-reconnect (see onTransportClosed).
    */
   async pair(p: Pairing): Promise<boolean> {
-    this.wantUrl = p; // remember the target so drops can auto-reconnect
     this.attempt = 0;
     return this.openTransport(p, /* manual */ true);
   }
@@ -338,19 +358,32 @@ export class Connection {
     // scheduleReconnect() already moved us to "connecting" for the backoff wait;
     // don't re-emit the same state when the retry timer actually fires.
     if (this.state !== "connecting") this.set("connecting");
-    this.host = p.host ?? this.host ?? "Machine";
+    this.host = p.host || this.host || "Machine";
     if (p.os) this.os = p.os;
+    const myEpoch = ++this.epoch;
     const isLan = /\.local|192\.168\.|10\.|127\.0\.0\.1|localhost/.test(p.url);
-    const t = new WsTransport(p.url, isLan ? "lan" : "tunnel");
-    t.onFrame = (f) => this.onServerFrame(f);
+    const t = new WsTransport(p.url, isLan ? "lan" : "tunnel", p.token);
+    // Guard the callback so a hello buffered on an orphaned socket can't clobber
+    // host/os or re-emit state after this transport has been replaced.
+    t.onFrame = (f) => {
+      if (t === this.transport) this.onServerFrame(f);
+    };
     t.onClose = () => this.onTransportClosed(t);
     try {
       await t.connect();
+      // Superseded mid-handshake (close()/new pair() ran): don't go live, just
+      // tear down the socket we just opened so it can't leak or keep beating.
+      if (myEpoch !== this.epoch) {
+        t.close();
+        return false;
+      }
       this.transport = t;
       this.attempt = 0; // a good connection resets the backoff
+      this.wantUrl = p; // only remember a target that actually connected
       this.set("live");
       return true;
     } catch (e) {
+      if (myEpoch !== this.epoch) return false; // superseded — stay quiet
       this.lastError = (e as Error).message;
       this.transport = null;
       if (manual) {
@@ -365,6 +398,7 @@ export class Connection {
   async pairBluetooth(): Promise<boolean> {
     this.wantUrl = null; // BLE isn't auto-reconnected; drop any pending WS retry
     this.clearReconnect();
+    const myEpoch = ++this.epoch;
     if (!BluetoothTransport.supported()) {
       this.lastError = "Web Bluetooth not supported on this device";
       this.set("error");
@@ -375,11 +409,16 @@ export class Connection {
     t.onClose = () => this.onTransportClosed(t);
     try {
       await t.connect();
+      if (myEpoch !== this.epoch) {
+        t.close();
+        return false;
+      }
       this.transport = t;
       this.host = "BLE Agent";
       this.set("live");
       return true;
     } catch (e) {
+      if (myEpoch !== this.epoch) return false;
       this.lastError = (e as Error).message;
       this.set("error");
       return false;
@@ -441,6 +480,7 @@ export class Connection {
   }
 
   close() {
+    this.epoch++; // supersede any in-flight connect so it tears itself down
     this.wantUrl = null; // intentional teardown — stop auto-reconnecting
     this.clearReconnect();
     this.transport?.close();

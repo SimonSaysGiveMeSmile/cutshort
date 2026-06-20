@@ -36,12 +36,20 @@ describe("parsePairing", () => {
     expect(p.token).toBe("secret");
   });
 
-  it("parses a cutshort:// deep link into a wss url", () => {
+  it("parses a cutshort:// deep link into a wss /ws url (query lifted off)", () => {
     const p = parsePairing("cutshort://mymac.local/ws?os=mac&t=tok")!;
-    expect(p.url).toBe("wss://mymac.local/ws?os=mac&t=tok");
+    expect(p.url).toBe("wss://mymac.local/ws"); // normalized; token/os carried separately
     expect(p.host).toBe("mymac.local");
     expect(p.os).toBe("mac");
     expect(p.token).toBe("tok");
+  });
+
+  it("normalizes a cutshort:// link with no explicit /ws path", () => {
+    expect(parsePairing("cutshort://mymac.local")!.url).toBe("wss://mymac.local/ws");
+  });
+
+  it("keeps a wss:// paste secure (never downgrades to ws://)", () => {
+    expect(parsePairing("wss://example.com/ws")!.url).toBe("wss://example.com/ws");
   });
 });
 
@@ -82,6 +90,19 @@ describe("detectAgent", () => {
   it("returns null on the vite dev server", () => {
     stubLocation({ host: "localhost:5173", hostname: "localhost" });
     expect(detectAgent()).toBeNull();
+  });
+
+  it("reads a same-origin pairing token from the #t= fragment", () => {
+    stubLocation({
+      hash: "#t=hunter2",
+      host: "abc123.trycloudflare.com",
+      hostname: "abc123.trycloudflare.com",
+    });
+    expect(detectAgent()).toEqual({
+      url: "wss://abc123.trycloudflare.com/ws",
+      host: "abc123.trycloudflare.com",
+      token: "hunter2",
+    });
   });
 });
 
@@ -216,6 +237,27 @@ describe("Connection", () => {
     c.close();
   });
 
+  it("carries the pairing token on the socket URL as ?t=", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "x", token: "s3cr3t" });
+    expect(FakeWebSocket.last!.url).toBe("ws://192.168.1.9/ws?t=s3cr3t");
+    c.close();
+  });
+
+  it("appends the token with & when the url already carries a query", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws?x=1", host: "x", token: "tok" });
+    expect(FakeWebSocket.last!.url).toBe("ws://192.168.1.9/ws?x=1&t=tok");
+    c.close();
+  });
+
+  it("connects without a token when none is provided", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+    expect(FakeWebSocket.last!.url).toBe("ws://192.168.1.9/ws");
+    c.close();
+  });
+
   it("updates host/os when the server sends a 'hello' frame", async () => {
     const c = new Connection();
     await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox", os: "mac" });
@@ -265,6 +307,39 @@ describe("Connection", () => {
     expect(c.fire({ mods: [], key: "x" })).toBe(false); // no silent no-op tap
     c.close(); // cancel the pending reconnect timer so the test leaves nothing running
     expect(c.state).toBe("idle");
+  });
+
+  it("close() during an in-flight connect() does not resurrect the socket", async () => {
+    const c = new Connection();
+    const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+    // Tear down before the fake socket's async onopen fires.
+    c.close();
+    const ok = await pairing; // the superseded connect resolves into a dead epoch
+    expect(ok).toBe(false);
+    expect(c.state).toBe("idle"); // not resurrected to "live"
+    expect(c.transport).toBeNull();
+    expect(FakeWebSocket.last!.closed).toBe(true); // the orphaned socket was closed
+  });
+
+  it("a failed manual pair does not arm auto-reconnect (retry stays a no-op)", async () => {
+    FakeWebSocket.mode = "error";
+    const c = new Connection();
+    expect(await c.pair({ url: "wss://typo.example/ws", host: "x" })).toBe(false);
+    expect(c.state).toBe("error");
+    // wantUrl was never remembered, so an auto-wake / manual retry can't reopen
+    // the URL the contract promised never to retry.
+    expect(await c.retry()).toBe(false);
+  });
+
+  it("ignores a 'hello' buffered on a socket after we've torn it down", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "Original" });
+    const ws = FakeWebSocket.last!;
+    c.close();
+    ws.onmessage!({
+      data: JSON.stringify({ v: 1, t: "hello", d: { host: "Ghost", os: "win", version: "9" } }),
+    });
+    expect(c.host).toBe("Original"); // the orphaned socket can't rename the machine
   });
 
   it("does not report an error when WE close the link (no false drop)", async () => {
