@@ -14,7 +14,11 @@ export function extractCloudflaredUrl(text) {
   return m ? m[0] : null;
 }
 export function extractNgrokUrl(text) {
-  const m = String(text).match(/url=(https?:\/\/[^\s]+)/);
+  // Require https specifically: ngrok can emit a url=http:// "started tunnel"
+  // line too, and grabbing it would break the wss:// upgrade (index.js rewrites
+  // ^https→wss, a no-op on http). Exclude quotes/commas so a quoted or
+  // comma-terminated value doesn't get swallowed into the URL.
+  const m = String(text).match(/url="?(https:\/\/[^\s",]+)/);
   return m ? m[1] : null;
 }
 

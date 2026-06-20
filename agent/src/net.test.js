@@ -33,4 +33,31 @@ describe("lanIPv4s", () => {
     expect(lanIPv4s({})).toEqual([]);
     expect(lanIPv4s({ lo0: [{ address: "::1", family: 6, internal: true }] })).toEqual([]);
   });
+
+  it("drops unroutable APIPA link-local (169.254.x.x) addresses", () => {
+    const ifaces = {
+      en0: [
+        { address: "169.254.10.10", family: 4, internal: false },
+        { address: "192.168.1.20", family: 4, internal: false },
+      ],
+    };
+    expect(lanIPv4s(ifaces)).toEqual(["192.168.1.20"]);
+  });
+
+  it("orders the real WiFi adapter ahead of a Docker/VM bridge", () => {
+    const ifaces = {
+      bridge100: [{ address: "192.168.64.1", family: 4, internal: false }],
+      en0: [{ address: "192.168.1.20", family: 4, internal: false }],
+    };
+    // [0] must be the reachable WiFi address, not the virtual bridge
+    expect(lanIPv4s(ifaces)).toEqual(["192.168.1.20", "192.168.64.1"]);
+  });
+
+  it("deprioritizes a VPN (utun) address below the physical interface", () => {
+    const ifaces = {
+      utun3: [{ address: "10.99.0.2", family: 4, internal: false }],
+      en0: [{ address: "192.168.1.20", family: 4, internal: false }],
+    };
+    expect(lanIPv4s(ifaces)).toEqual(["192.168.1.20", "10.99.0.2"]);
+  });
 });

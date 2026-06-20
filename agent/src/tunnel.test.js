@@ -46,4 +46,16 @@ describe("extractNgrokUrl", () => {
     expect(extractNgrokUrl('lvl=info msg="starting"')).toBeNull();
     expect(extractNgrokUrl("")).toBeNull();
   });
+
+  it("picks the https tunnel when ngrok also prints an http one", () => {
+    const both =
+      'msg="started tunnel" addr=http://localhost:8787 url=http://1a2b.ngrok-free.app\n' +
+      'msg="started tunnel" addr=http://localhost:8787 url=https://1a2b.ngrok-free.app';
+    expect(extractNgrokUrl(both)).toBe("https://1a2b.ngrok-free.app");
+  });
+
+  it("doesn't swallow surrounding quotes or a trailing comma", () => {
+    expect(extractNgrokUrl('url="https://x.ngrok.app"')).toBe("https://x.ngrok.app");
+    expect(extractNgrokUrl("url=https://x.ngrok.app, obj=tunnels")).toBe("https://x.ngrok.app");
+  });
 });
