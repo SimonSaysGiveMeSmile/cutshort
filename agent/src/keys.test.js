@@ -40,10 +40,10 @@ describe("injectCombo — base key resolution", () => {
     expect(keyboard.type).toHaveBeenCalledWith("LeftCmd", "LeftShift", "R");
   });
 
-  it("defaults to no modifiers and resolves a named key", async () => {
+  it("defaults to no modifiers and maps Enter to the main Return key", async () => {
     const { keyboard, injectCombo } = await load();
     expect(await injectCombo({ key: "Enter" })).toBe("Enter");
-    expect(keyboard.type).toHaveBeenCalledWith("Enter");
+    expect(keyboard.type).toHaveBeenCalledWith("Return"); // not numpad Enter
   });
 
   it("resolves the space key", async () => {
@@ -74,6 +74,40 @@ describe("injectCombo — base key resolution", () => {
     const { keyboard, injectCombo } = await load();
     await injectCombo({ mods: ["MOD"], key: "`" });
     expect(keyboard.type).toHaveBeenCalledWith("LeftCmd", "Grave");
+  });
+
+  it("resolves the common symbol keys editors bind", async () => {
+    const { keyboard, injectCombo } = await load();
+    const cases = [
+      ["-", "Minus"],
+      ["=", "Equal"],
+      ["[", "LeftBracket"],
+      ["]", "RightBracket"],
+      [";", "Semicolon"],
+      ["'", "Quote"],
+    ];
+    for (const [key, expected] of cases) {
+      await injectCombo({ mods: ["MOD"], key });
+      expect(keyboard.type).toHaveBeenLastCalledWith("LeftCmd", expected);
+    }
+  });
+
+  it("resolves navigation keys", async () => {
+    const { keyboard, injectCombo } = await load();
+    for (const key of ["Home", "End", "PageUp", "PageDown", "Insert"]) {
+      await injectCombo({ key });
+      expect(keyboard.type).toHaveBeenLastCalledWith(key);
+    }
+  });
+
+  it("resolves keys case-insensitively (matching the UI's free-form input)", async () => {
+    const { keyboard, injectCombo } = await load();
+    await injectCombo({ key: "f2" });
+    expect(keyboard.type).toHaveBeenLastCalledWith("F2");
+    await injectCombo({ key: "enter" });
+    expect(keyboard.type).toHaveBeenLastCalledWith("Return");
+    await injectCombo({ key: "home" });
+    expect(keyboard.type).toHaveBeenLastCalledWith("Home");
   });
 });
 
@@ -113,6 +147,12 @@ describe("injectCombo — errors", () => {
   it("throws on an unmappable base key without typing anything", async () => {
     const { keyboard, injectCombo } = await load();
     await expect(injectCombo({ mods: ["MOD"], key: "£" })).rejects.toThrow(/unmapped key/);
+    expect(keyboard.type).not.toHaveBeenCalled();
+  });
+
+  it("throws on a modifier-only frame (no base key) without typing anything", async () => {
+    const { keyboard, injectCombo } = await load();
+    await expect(injectCombo({ mods: ["MOD"] })).rejects.toThrow(/unmapped key/);
     expect(keyboard.type).not.toHaveBeenCalled();
   });
 });
