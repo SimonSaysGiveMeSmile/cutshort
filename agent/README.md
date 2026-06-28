@@ -27,6 +27,10 @@ On boot it:
 ✅  cloudflared:  https://something.trycloudflare.com/
 ```
 
+The scan URLs embed a per-run **pairing token** in their fragment (`#t=…`); the
+`/ws` upgrade and the control endpoints reject anything without it, so learning the
+tunnel URL alone can't drive your keyboard.
+
 ### macOS: runs as a "CutShort" app
 
 On macOS the agent relaunches itself through a generated
@@ -34,7 +38,8 @@ On macOS the agent relaunches itself through a generated
 a dedicated “CutShort” row** instead of a generic “Node” (or your whole
 terminal). Because that detaches it from the terminal, the QR codes open on a
 **pairing page in your browser** (with a *Stop agent* button) rather than
-printing inline.
+printing inline. That page is served on a **loopback-only `127.0.0.1` port** the
+tunnel can't reach — it carries the token, so it must never be publicly exposed.
 
 ```bash
 cutshort-agent              # → launches CutShort.app, opens the pairing page
@@ -73,7 +78,8 @@ Without a tunnel binary the agent still serves the LAN URL on the same WiFi.
 
 ## Protocol
 
-JSON over WebSocket at `/ws` (see [`src/index.js`](src/index.js)):
+JSON over WebSocket at `/ws?t=<token>` — the upgrade is rejected without the
+pairing token (see [`src/index.js`](src/index.js)):
 
 ```
 client → { v:1, t:"key",  d:{ mods:[...], key, os } }   // mods: MOD|SUPER|SHIFT|ALT|CTRL
