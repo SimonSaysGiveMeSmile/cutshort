@@ -22,7 +22,7 @@ you're driving (⌘ on macOS, Ctrl on Windows) chosen automatically.
   Phone (this web app)                    Desktop agent (cutshort-agent)
   ────────────────────                    ──────────────────────────────
   │  Shortcut deck   │  ── key frame ──►  │  WS server  ──►  key injector │
-  │  10 themes       │   {mods,key,os}    │  (nut.js / robotjs)           │
+  │  10 themes       │   {mods,key,os}    │  (nut.js keystroke)           │
   │  Mac/Win switch  │  ◄── hello/ack ──  │  Cloudflare Quick Tunnel + QR │
   ────────────────────                    ──────────────────────────────
 ```
@@ -37,6 +37,16 @@ you're driving (⌘ on macOS, Ctrl on Windows) chosen automatically.
    app), it **auto-connects** — no demo, no manual step. The deck then sends
    `{ v:1, t:"key", d:{ mods, key, os } }` frames and the agent replays them as
    real key events. You can also paste the agent's `ws://…` URL manually.
+
+### Pairing is token-gated
+
+Every agent run mints a fresh 128-bit pairing token. It rides **only** in the QR /
+pairing URL fragment (`#t=…`) — never served from an endpoint over the LAN or tunnel
+— and is required on the WebSocket upgrade (and the control POSTs), so learning the
+public tunnel URL alone can't inject keystrokes into your session. The token-bearing
+pairing page and the quit / accessibility controls live on a **separate loopback-only
+listener** (`127.0.0.1`) the tunnel physically can't reach; the public `0.0.0.0`
+listener serves only the SPA and the token-gated `/ws`.
 
 ### Transport is pluggable — to be decided by test results
 
@@ -114,8 +124,9 @@ vercel link --scope hireal         # link to the Hireal team project
 vercel --prod                       # ship
 ```
 
-`vercel.json` pins the Vite framework preset and SPA rewrites. Point the
-`cutshort.online` domain at the project in the Hireal team's dashboard.
+`vercel.json` pins the Vite framework preset, SPA rewrites, and security headers
+(deny framing / `nosniff` / `no-referrer`). Point the `cutshort.online` domain at
+the project in the Hireal team's dashboard.
 
 > Note: Vercel hosts the **static phone app** only. The desktop agent (WS +
 > tunnel) is a separate process that runs on the user's machine — serverless
@@ -129,7 +140,7 @@ src/
   shortcuts.ts            shortcut data model + OS combo resolution
   themes.ts               10-theme registry + persistence
   index.css               base layer + all 10 themes
-  lib/connection.ts       pluggable transport (lan/tunnel/bluetooth/demo)
+  lib/connection.ts       pluggable transport (lan/tunnel/bluetooth)
   components/
     ConnectScreen.tsx     agent command + manual URL + Bluetooth
     ControllerScreen.tsx  top bar, OS switch, mode toggle, categories, deck
@@ -138,7 +149,9 @@ src/
     Icon.tsx              cohesive Lucide icon set (no emoji)
 
 agent/
-  src/index.js            WS server + static host + tunnel + terminal QR
+  src/index.js            token-gated WS server + static host + tunnel + QR
+  src/auth.js             per-run pairing token (mint / parse / constant-time match)
   src/keys.js             combo → nut.js keystroke injection
   src/tunnel.js           Cloudflare Quick Tunnel (ngrok fallback)
+  src/net.js              LAN IPv4 discovery (physical NICs before virtual)
 ```
