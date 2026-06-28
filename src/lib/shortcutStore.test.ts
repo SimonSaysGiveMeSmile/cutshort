@@ -135,6 +135,62 @@ describe("mutations", () => {
   });
 });
 
+describe("unique ids", () => {
+  it("addCustom never reuses an id even when genId collides within one millisecond", async () => {
+    const s = await freshStore();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    // 1st add → 0.5; 2nd add's first genId → 0.5 (collides with the 1st), retry → 0.6.
+    const randSpy = vi
+      .spyOn(Math, "random")
+      .mockReturnValueOnce(0.5)
+      .mockReturnValueOnce(0.5)
+      .mockReturnValueOnce(0.6);
+    try {
+      const id1 = s.addCustom({ label: "One", icon: "Star", category: "dev", combo: { mods: [], key: "1" } });
+      const id2 = s.addCustom({ label: "Two", icon: "Star", category: "dev", combo: { mods: [], key: "2" } });
+      expect(id1).not.toBe(id2);
+      const ids = s.getShortcuts().map((x) => x.id);
+      expect(ids.filter((x) => x === id1)).toHaveLength(1);
+      expect(ids.filter((x) => x === id2)).toHaveLength(1);
+    } finally {
+      nowSpy.mockRestore();
+      randSpy.mockRestore();
+    }
+  });
+});
+
+describe("cross-tab sync", () => {
+  it("reloadFromStorage adopts another tab's write instead of persisting over it", async () => {
+    const s = await freshStore({
+      custom: [{ id: "cA", label: "A", icon: "Star", category: "dev", combo: { mods: [], key: "a" }, custom: true }],
+    });
+    const seen = vi.fn();
+    s.subscribe(seen);
+    // Another tab replaced the stored set while we held the old one in memory.
+    localStorage.setItem(
+      "cutshort.custom",
+      JSON.stringify([
+        { id: "cB", label: "B", icon: "Star", category: "dev", combo: { mods: [], key: "b" }, custom: true },
+      ]),
+    );
+    s.reloadFromStorage();
+    const ids = s.getShortcuts().map((x) => x.id);
+    expect(ids).toContain("cB");
+    expect(ids).not.toContain("cA"); // their write wasn't clobbered by ours
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-seeds on a cross-tab 'storage' event for one of our keys", async () => {
+    const s = await freshStore();
+    const seen = vi.fn();
+    s.subscribe(seen);
+    localStorage.setItem("cutshort.hidden", JSON.stringify(["copy"]));
+    window.dispatchEvent(new StorageEvent("storage", { key: "cutshort.hidden" }));
+    expect(s.isHidden("copy")).toBe(true);
+    expect(seen).toHaveBeenCalled();
+  });
+});
+
 describe("subscribe", () => {
   it("notifies on mutation and stops after unsubscribe", async () => {
     const s = await freshStore();

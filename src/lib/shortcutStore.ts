@@ -82,6 +82,23 @@ function refresh() {
   listeners.forEach((l) => l());
 }
 
+// Re-seed from localStorage and notify, WITHOUT persisting. Driven by the cross-tab
+// `storage` event: another tab just wrote, so our in-memory copy is stale — adopting
+// theirs and then persisting ours would clobber their write (persist is last-write-
+// wins). We must take their state, not re-save our old one.
+export function reloadFromStorage() {
+  custom = loadCustom();
+  hidden = loadHidden();
+  snapshot = compute();
+  listeners.forEach((l) => l());
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    // key === null is a clear() from another tab; otherwise only react to our keys.
+    if (e.key === null || e.key === KEY_CUSTOM || e.key === KEY_HIDDEN) reloadFromStorage();
+  });
+}
+
 // — useSyncExternalStore wiring —
 export function subscribe(l: () => void) {
   listeners.add(l);
@@ -103,8 +120,19 @@ function genId(): string {
   return "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
 }
 
+// genId has only ~1e4 of entropy within a single millisecond, so several adds in one
+// tick (a future preset/agent inserting a pack) could collide. A duplicate id makes
+// updateCustom/removeShortcut mutate BOTH entries and React list keys clash — so loop
+// until the candidate is free against every existing built-in and custom id.
+function uniqueId(): string {
+  const taken = new Set([...SHORTCUTS, ...custom].map((s) => s.id));
+  let id = genId();
+  while (taken.has(id)) id = genId();
+  return id;
+}
+
 export function addCustom(s: NewShortcut): string {
-  const id = genId();
+  const id = uniqueId();
   custom = [...custom, { ...s, id, custom: true }];
   refresh();
   return id;
