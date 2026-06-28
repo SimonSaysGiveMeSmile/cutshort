@@ -43,6 +43,20 @@ export function ControllerScreen({
   const toastTimer = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
+  // The agent reports a failed keystroke (e.g. Accessibility permission revoked)
+  // over a still-live socket — surface it as a toast so a silently no-op'ing deck
+  // doesn't keep looking like it's working.
+  useEffect(() => {
+    const off = connection.onError((msg) => {
+      setToast({ text: msg, ok: false });
+      window.clearTimeout(toastTimer.current);
+      toastTimer.current = window.setTimeout(() => setToast(null), 1600);
+    });
+    return () => {
+      off();
+    };
+  }, []);
+
   function fire(s: Shortcut) {
     connection.os = os;
     const combo = resolveCombo(s, os);

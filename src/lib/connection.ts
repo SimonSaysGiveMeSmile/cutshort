@@ -53,10 +53,14 @@ export function parsePairing(raw: string): Pairing | null {
     // url; the token is re-applied to the socket URL at connect time.
     const httpish = text.replace(/^cutshort:\/\//, "https://");
     const u = new URL(httpish);
+    // Validate os against the known set rather than blind-casting: this value comes
+    // from an untrusted deep link and drives which modifier glyphs/variants the deck
+    // renders, so a stray `?os=linux` must fall back to undefined, not poison the UI.
+    const osParam = u.searchParams.get("os");
     return {
       url: toWs(httpish),
       host: u.searchParams.get("host") ?? u.hostname,
-      os: (u.searchParams.get("os") as OS) ?? undefined,
+      os: osParam === "mac" || osParam === "win" ? osParam : undefined,
       token: u.searchParams.get("t") ?? undefined,
     };
   } catch {
@@ -95,7 +99,11 @@ export function detectAgent(): Pairing | null {
 
   const host = location.host;
   const isHosted = /(\.vercel\.app$)|(cutshort\.online$)/.test(host);
-  const isViteDev = /^localhost:5173$|^127\.0\.0\.1:5173$/.test(host);
+  // Match the dev server on ANY port, not just 5173: Vite auto-increments (5174,
+  // 5175, …) when the configured port is taken, and a hardcoded 5173 would make
+  // those origins look like a same-origin agent and auto-connect to a ws:// that
+  // no agent is serving — a spurious connect error on every dev reload.
+  const isViteDev = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
   if (!isHosted && !isViteDev && host) {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     // The agent puts the pairing token in the QR's URL fragment (#t=…) so the
@@ -307,17 +315,34 @@ export class Connection {
   private wantUrl: Pairing | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
+  // When the current link went live. The backoff is only reset once a link has been
+  // continuously live past STABLE_MS — otherwise an agent that accepts the upgrade
+  // then immediately drops (proxy up but backend down, agent crashing right after
+  // hello) would reset attempt on every open and loop forever at the 500ms floor,
+  // never escalating to "error".
+  private liveSince = 0;
   // Bumped on every pair/retry/reconnect/close. A connect() that resolves after
   // its epoch was superseded (e.g. close() or a fresh pair() ran mid-handshake)
   // tears itself down instead of resurrecting as the live transport.
   private epoch = 0;
   private static readonly MAX_BACKOFF_MS = 10_000;
   private static readonly MAX_ATTEMPTS = 8;
+  // How long a link must stay live before a later drop is treated as a fresh
+  // incident (backoff reset) rather than part of an escalating flap.
+  private static readonly STABLE_MS = 10_000;
   private listeners = new Set<(s: ConnState) => void>();
+  // Separate from state listeners: the agent can report a failed injection while the
+  // socket stays live (state doesn't change), so the UI needs its own channel to
+  // surface that instead of leaving the deck green while taps silently no-op.
+  private errorListeners = new Set<(msg: string) => void>();
 
   onState(fn: (s: ConnState) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+  onError(fn: (msg: string) => void) {
+    this.errorListeners.add(fn);
+    return () => this.errorListeners.delete(fn);
   }
   private set(s: ConnState) {
     this.state = s;
@@ -383,7 +408,10 @@ export class Connection {
         return false;
       }
       this.transport = t;
-      this.attempt = 0; // a good connection resets the backoff
+      // Don't reset the backoff here — opening isn't the same as staying up. The
+      // reset happens in scheduleReconnect once the link proves stable (see
+      // STABLE_MS), so a flapping agent keeps escalating instead of looping.
+      this.liveSince = Date.now();
       this.wantUrl = p; // only remember a target that actually connected
       this.set("live");
       return true;
@@ -445,6 +473,14 @@ export class Connection {
 
   private scheduleReconnect() {
     this.clearReconnect();
+    // A link that had been stably live is a fresh incident (sleep/wake, tunnel
+    // re-establish) — reset the backoff so recovery is quick. A link that dropped
+    // right after opening (or never opened) keeps its escalating count so a flapping
+    // agent settles on "error" instead of a perpetual 500ms reconnect loop.
+    if (this.liveSince && Date.now() - this.liveSince >= Connection.STABLE_MS) {
+      this.attempt = 0;
+    }
+    this.liveSince = 0;
     if (!this.wantUrl || this.attempt >= Connection.MAX_ATTEMPTS) {
       this.lastError = "Connection lost";
       this.set("error");
@@ -473,6 +509,12 @@ export class Connection {
       this.os = f.d.os || this.os;
       // re-emit so the UI refreshes the machine name
       this.set(this.state);
+    } else if (f.t === "error") {
+      // The agent injected nothing (e.g. macOS Accessibility permission was revoked
+      // while live, or nut.js threw). The socket is fine, so state stays "live" — but
+      // we must tell the user their tap didn't land instead of silently confirming it.
+      this.lastError = f.d.message || "Agent error";
+      this.errorListeners.forEach((l) => l(this.lastError));
     }
   }
 
@@ -489,6 +531,7 @@ export class Connection {
   close() {
     this.epoch++; // supersede any in-flight connect so it tears itself down
     this.wantUrl = null; // intentional teardown — stop auto-reconnecting
+    this.liveSince = 0;
     this.clearReconnect();
     this.transport?.close();
     this.transport = null;

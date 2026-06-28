@@ -51,6 +51,13 @@ describe("parsePairing", () => {
   it("keeps a wss:// paste secure (never downgrades to ws://)", () => {
     expect(parsePairing("wss://example.com/ws")!.url).toBe("wss://example.com/ws");
   });
+
+  it("drops an unrecognized os value instead of trusting the deep link", () => {
+    expect(parsePairing("https://x.example/ws?os=linux")!.os).toBeUndefined();
+    expect(parsePairing("https://x.example/ws?os=")!.os).toBeUndefined();
+    expect(parsePairing("https://x.example/ws?os=mac")!.os).toBe("mac");
+    expect(parsePairing("https://x.example/ws?os=win")!.os).toBe("win");
+  });
 });
 
 describe("detectAgent", () => {
@@ -92,6 +99,15 @@ describe("detectAgent", () => {
     expect(detectAgent()).toBeNull();
   });
 
+  it("returns null on the dev server whatever port Vite landed on", () => {
+    // Vite auto-increments when its port is taken, so the dev origin must be
+    // excluded on 5174/5188/… too, not just the default 5173.
+    for (const host of ["localhost:5174", "localhost:5188", "127.0.0.1:4321"]) {
+      stubLocation({ host, hostname: host.split(":")[0] });
+      expect(detectAgent()).toBeNull();
+    }
+  });
+
   it("reads a same-origin pairing token from the #t= fragment", () => {
     stubLocation({
       hash: "#t=hunter2",
@@ -111,6 +127,9 @@ describe("detectAgent", () => {
 class FakeWebSocket {
   static OPEN = 1;
   static mode: "open" | "error" = "open";
+  // When true every socket opens and then immediately drops — a flapping agent
+  // (proxy up, backend down / crashing right after the upgrade).
+  static flap = false;
   static last: FakeWebSocket | null = null;
   readyState = 0;
   url: string;
@@ -128,6 +147,9 @@ class FakeWebSocket {
       if (FakeWebSocket.mode === "open") {
         this.readyState = FakeWebSocket.OPEN;
         this.onopen?.();
+        // Drop a tick after opening — after connect() has resolved and the
+        // Connection has adopted this socket as its live transport.
+        if (FakeWebSocket.flap) setTimeout(() => this.drop(), 1);
       } else {
         this.onerror?.();
       }
@@ -180,6 +202,7 @@ function fakeBleDevice() {
 describe("Connection", () => {
   beforeEach(() => {
     FakeWebSocket.mode = "open";
+    FakeWebSocket.flap = false;
     FakeWebSocket.last = null;
     vi.stubGlobal("WebSocket", FakeWebSocket);
   });
@@ -423,6 +446,40 @@ describe("Connection", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("escalates backoff for a flapping agent and finally settles on error", async () => {
+    vi.useFakeTimers();
+    try {
+      // Every socket opens then immediately drops. The OLD code reset the backoff on
+      // each open, so this looped forever at the 500ms floor and never gave up.
+      FakeWebSocket.flap = true;
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://10.0.0.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(120_000); // run well past the full backoff budget
+      await pairing;
+      expect(c.state).toBe("error"); // escalated to give-up instead of a 500ms storm
+    } finally {
+      FakeWebSocket.flap = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces an agent error frame to onError + lastError without dropping the link", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "DevBox" });
+    const errors: string[] = [];
+    const off = c.onError((m) => errors.push(m));
+
+    FakeWebSocket.last!.onmessage!({
+      data: JSON.stringify({ v: 1, t: "error", d: { message: "Accessibility permission denied" } }),
+    });
+
+    expect(errors).toEqual(["Accessibility permission denied"]);
+    expect(c.lastError).toBe("Accessibility permission denied");
+    expect(c.state).toBe("live"); // the socket is fine — only the injection failed
+    off();
+    c.close();
   });
 
   it("does not auto-reconnect after an intentional close()", async () => {
