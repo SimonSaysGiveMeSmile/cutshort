@@ -53,4 +53,64 @@ describe("wireDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
     node.remove();
   });
+
+  // Without a trap, Tab/Shift+Tab walks focus onto the deck keys behind the scrim,
+  // where a keyboard user can fire a real keystroke through a supposedly-modal sheet.
+  function makeDialog(n: number) {
+    const node = document.createElement("div");
+    node.tabIndex = -1;
+    const buttons = Array.from({ length: n }, () => document.createElement("button"));
+    node.append(...buttons);
+    document.body.appendChild(node);
+    return { node, buttons };
+  }
+
+  it("wraps Tab from the last focusable back to the first", () => {
+    const { node, buttons } = makeDialog(3);
+    const cleanup = wireDialog(node, () => {});
+    buttons[2].focus();
+    const e = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    document.dispatchEvent(e);
+    expect(document.activeElement).toBe(buttons[0]);
+    expect(e.defaultPrevented).toBe(true);
+    cleanup();
+    node.remove();
+  });
+
+  it("wraps Shift+Tab from the first focusable to the last", () => {
+    const { node, buttons } = makeDialog(3);
+    const cleanup = wireDialog(node, () => {});
+    buttons[0].focus();
+    const e = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
+    document.dispatchEvent(e);
+    expect(document.activeElement).toBe(buttons[2]);
+    expect(e.defaultPrevented).toBe(true);
+    cleanup();
+    node.remove();
+  });
+
+  it("leaves Tab alone in the middle of the dialog (browser handles it)", () => {
+    const { node, buttons } = makeDialog(3);
+    const cleanup = wireDialog(node, () => {});
+    buttons[0].focus(); // first, but not last → forward Tab is not our concern
+    const e = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    document.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    cleanup();
+    node.remove();
+  });
+
+  it("does not hijack Tab when focus is outside the dialog", () => {
+    const { node } = makeDialog(2);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    const cleanup = wireDialog(node, () => {});
+    outside.focus();
+    const e = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    document.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    cleanup();
+    outside.remove();
+    node.remove();
+  });
 });
