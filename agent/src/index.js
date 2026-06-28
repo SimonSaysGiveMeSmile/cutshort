@@ -30,6 +30,7 @@ import { injectCombo } from "./keys.js";
 import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
 import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
+import { startHeartbeat } from "./heartbeat.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
   APP_NAME,
@@ -162,8 +163,11 @@ function servePublic(req, res) {
   const url = (req.url || "/").split("?")[0];
 
   if (url === "/health" || url === "/api/ping") {
+    // Unauthenticated and reachable over the public tunnel, so it must NOT leak the
+    // machine's hostname (often the owner's real name) or OS. host/os ride the
+    // token-gated `hello` frame instead, for paired clients only.
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, host: HOSTNAME, os: PLATFORM, version: VERSION }));
+    res.end(JSON.stringify({ ok: true, version: VERSION }));
     return;
   }
 
@@ -278,9 +282,23 @@ const wss = new WebSocketServer({
   verifyClient: ({ req }) => isAuthed(req),
 });
 
+// Reap half-open sockets whose phone vanished without a close frame, so they don't
+// pile up in wss.clients and leak file descriptors over a multi-day session.
+startHeartbeat(wss);
+
 wss.on("connection", (ws, req) => {
   const peer = req.socket.remoteAddress;
   console.log(`📱 phone connected (${peer})`);
+  // Liveness: the sweep pings and expects this to flip back true via the pong.
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+  // A socket-level error (an oversized frame tripping maxPayload, an ECONNRESET on
+  // an abrupt phone disconnect, a protocol violation) emits 'error' on this socket.
+  // Without a listener Node rethrows it as an uncaughtException; handle it per-socket
+  // so one bad client can't bubble into the global last-resort handler.
+  ws.on("error", (e) => console.warn("ws error:", e?.message));
   ws.send(JSON.stringify({ v: 1, t: "hello", d: { host: HOSTNAME, os: PLATFORM, version: VERSION } }));
 
   ws.on("message", async (raw) => {

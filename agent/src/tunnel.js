@@ -47,6 +47,53 @@ function track(proc) {
   return proc;
 }
 
+// Read a child's stdout+stderr until `extract` finds the public URL, then resolve.
+// Crucially it DETACHES the data listeners and frees the buffer on the first match:
+// the child stays alive for the whole session and keeps logging (cloudflared emits
+// heartbeats), so a listener left attached would append to an ever-growing buffer
+// and re-scan it forever. On timeout it kills the child (an un-killed slow starter
+// would otherwise establish an unused public tunnel for the rest of the session).
+// `name` only flavors the error text. Pure enough to test with a fake child.
+export function captureTunnelUrl(proc, extract, timeoutMs, name) {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    let settled = false;
+    const onData = (chunk) => {
+      buf += chunk.toString();
+      const url = extract(buf);
+      if (url && !settled) {
+        settled = true;
+        buf = "";
+        cleanup();
+        resolve(url);
+      }
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      proc.stdout?.off?.("data", onData);
+      proc.stderr?.off?.("data", onData);
+    };
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* already gone */
+      }
+      fail(new Error(`${name} timeout`));
+    }, timeoutMs);
+    proc.stdout?.on("data", onData);
+    proc.stderr?.on("data", onData);
+    proc.on("error", (e) => fail(e));
+    proc.on("exit", (code) => fail(new Error(`${name} exited ${code}`)));
+  });
+}
+
 function findBinary(name) {
   const candidates = [
     `/opt/homebrew/bin/${name}`,
@@ -82,35 +129,7 @@ async function tryCloudflared(port) {
         stdio: ["ignore", "pipe", "pipe"],
       }),
     );
-    const url = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        try {
-          proc.kill();
-        } catch {
-          /* ignore */
-        }
-        reject(new Error("cloudflared timeout"));
-      }, 30000);
-      let buf = "";
-      const onData = (chunk) => {
-        buf += chunk.toString();
-        const url = extractCloudflaredUrl(buf);
-        if (url) {
-          clearTimeout(timeout);
-          resolve(url);
-        }
-      };
-      proc.stdout.on("data", onData);
-      proc.stderr.on("data", onData);
-      proc.on("error", (e) => {
-        clearTimeout(timeout);
-        reject(e);
-      });
-      proc.on("exit", (code) => {
-        clearTimeout(timeout);
-        reject(new Error(`cloudflared exited ${code}`));
-      });
-    });
+    const url = await captureTunnelUrl(proc, extractCloudflaredUrl, 30000, "cloudflared");
     return {
       provider: "cloudflared",
       url,
@@ -136,26 +155,7 @@ async function tryNgrok(port) {
         stdio: ["ignore", "pipe", "pipe"],
       }),
     );
-    const url = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("ngrok timeout")), 15000);
-      let buf = "";
-      proc.stdout.on("data", (chunk) => {
-        buf += chunk.toString();
-        const url = extractNgrokUrl(buf);
-        if (url) {
-          clearTimeout(timeout);
-          resolve(url);
-        }
-      });
-      proc.on("error", (e) => {
-        clearTimeout(timeout);
-        reject(e);
-      });
-      proc.on("exit", (code) => {
-        clearTimeout(timeout);
-        reject(new Error(`ngrok exited ${code}`));
-      });
-    });
+    const url = await captureTunnelUrl(proc, extractNgrokUrl, 15000, "ngrok");
     return { provider: "ngrok", url, close: () => proc.kill() };
   } catch {
     return null;
