@@ -92,7 +92,7 @@ icon to flip light/dark — every skin ships both modes. Both persist to
 ```bash
 # phone app
 npm install
-npm run dev        # http://localhost:5173 (open on your phone via LAN IP)
+npm run dev        # http://localhost:5188 (open on your phone via LAN IP)
 npm run build      # type-check + production build to dist/
 
 # desktop agent (after the build above, so it can serve ../dist)
