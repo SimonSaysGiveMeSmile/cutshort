@@ -159,13 +159,15 @@ src/
   lib/nlShortcut.ts       natural-language phrase → { mods, key, label } parser
   components/
     ConnectScreen.tsx     agent command + manual URL + Bluetooth
-    ControllerScreen.tsx  top bar, OS switch, mode toggle, categories, deck
+    ControllerScreen.tsx  top bar (+ live RTT), OS switch, mode toggle, deck
     ShortcutButton.tsx    a single key (ripple + haptic)
+    EditSheet.tsx         deck editor: add/hide/restore + "describe it" box
     ThemeSheet.tsx        skin picker bottom sheet
     Icon.tsx              cohesive Lucide icon set (no emoji)
 
 agent/
   src/index.js            token-gated WS server + static host + tunnel + QR
+  src/frame.js            inbound WS frame parse + shape guard
   src/auth.js             per-run pairing token (mint / parse / constant-time match)
   src/keys.js             combo → nut.js keystroke injection
   src/tunnel.js           Cloudflare Quick Tunnel (ngrok fallback)
