@@ -99,12 +99,17 @@ icon to flip light/dark — every skin ships both modes. Both persist to
   key, with a live combo preview), hide built-ins you don't use, and restore
   them later. Custom shortcuts + hidden built-ins persist to `localStorage`
   (`src/lib/shortcutStore.ts`). `MOD` resolves to ⌘/Ctrl, `SUPER` to ⌘/Win.
+- **Describe it in words:** the editor's "Describe it" box turns a phrase like
+  *"toggle sidebar cmd b"* or *"⌘⇧P command palette"* into the pre-filled combo
+  fields (`src/lib/nlShortcut.ts`) — modifiers as words/glyphs/`+`-joins, `ctrl`
+  resolved per-OS, named keys normalized — then the same **Add**/`addCustom()`
+  persists it. It composes the existing editor rather than generating new UI.
 - **Defaults** live in `src/shortcuts.ts`; the deck renders from the merged
   store, not the static list.
-- **Next (desktop web build):** an **embedded agent** that lets you describe a
-  shortcut in natural language and wires up the combo by composing the
-  **existing components** (the editor + `Shortcut` data model) rather than
-  generating new UI on the fly — it calls the same `addCustom()` the editor does.
+- **Next (LLM path):** let the same box resolve pure *action names* the
+  deterministic parser deliberately leaves alone (*"peek definition"* → the right
+  combo per OS), still calling `addCustom()` — an enhancement to the parser, not
+  a parallel code path.
 
 ## Develop
 
@@ -151,6 +156,7 @@ src/
   index.css               base layer + all 10 themes
   lib/connection.ts       pluggable transport (lan/tunnel/bluetooth) + reconnect
   lib/latency.ts          RTT sampling + transport A/B (summarize / pickFastest)
+  lib/nlShortcut.ts       natural-language phrase → { mods, key, label } parser
   components/
     ConnectScreen.tsx     agent command + manual URL + Bluetooth
     ControllerScreen.tsx  top bar, OS switch, mode toggle, categories, deck
