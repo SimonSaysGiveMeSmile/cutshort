@@ -100,6 +100,16 @@ function prefIndex(kind: TransportKind): number {
 }
 
 /**
+ * Format an RTT (milliseconds) for a compact UI badge: sub-millisecond rounds to
+ * "<1ms", everything else to the nearest whole millisecond. Garbage in → "".
+ */
+export function formatRtt(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1) return "<1ms";
+  return `${Math.round(ms)}ms`;
+}
+
+/**
  * A fixed-capacity ring of RTT samples for one transport. The wiring records a
  * timestamp when it sends a ping and calls `record(now - sentAt)` on the pong;
  * `summary()` collapses the ring for the A/B. Bounded so a long-lived session

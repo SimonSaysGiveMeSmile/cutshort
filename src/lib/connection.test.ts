@@ -764,6 +764,20 @@ describe("Connection", () => {
     return ws;
   }
 
+  it("reports the live transport's latency summary (and null once torn down)", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      expect(c.liveLatency()).toBeNull(); // nothing paired yet
+      await pairAndSample(c, "ws://192.168.1.9/ws", "x");
+      expect(c.liveLatency()).toMatchObject({ count: 1, median: 15 });
+      c.close();
+      expect(c.liveLatency()).toBeNull(); // no live transport after close()
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clears sampled latency on close() so a new session can't inherit stale RTTs", async () => {
     vi.useFakeTimers();
     try {

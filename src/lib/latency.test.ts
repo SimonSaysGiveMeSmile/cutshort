@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarize, pickFastest, RttWindow, type TransportLatency } from "./latency";
+import { summarize, pickFastest, formatRtt, RttWindow, type TransportLatency } from "./latency";
 
 describe("summarize", () => {
   it("returns null when there are no usable samples", () => {
@@ -62,6 +62,25 @@ describe("pickFastest", () => {
   it("ignores entries that have no samples", () => {
     const empty: TransportLatency = { kind: "lan", summary: { count: 0, min: 0, median: 0, p95: 0, mean: 0 } };
     expect(pickFastest([empty, entry("tunnel", 90)])).toBe("tunnel");
+  });
+});
+
+describe("formatRtt", () => {
+  it("rounds to the nearest whole millisecond", () => {
+    expect(formatRtt(24)).toBe("24ms");
+    expect(formatRtt(24.6)).toBe("25ms");
+    expect(formatRtt(120.2)).toBe("120ms");
+  });
+
+  it("collapses sub-millisecond times to <1ms", () => {
+    expect(formatRtt(0)).toBe("<1ms");
+    expect(formatRtt(0.4)).toBe("<1ms");
+  });
+
+  it("returns an empty string for garbage samples", () => {
+    expect(formatRtt(-1)).toBe("");
+    expect(formatRtt(NaN)).toBe("");
+    expect(formatRtt(Infinity)).toBe("");
   });
 });
 

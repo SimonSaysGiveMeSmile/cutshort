@@ -155,6 +155,18 @@ body {
   background: #ff5a5f;
   box-shadow: 0 0 8px #ff5a5f;
 }
+/* Live round-trip latency — the transport A/B readout, kept quiet beside the host
+   name. Tabular figures so a changing number doesn't shift the topbar width. */
+.status .rtt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  opacity: 0.65;
+}
+.status .rtt::before {
+  content: "·";
+  margin: 0 4px 0 2px;
+  opacity: 0.7;
+}
 /* Offline status is a tappable "Reconnect" control, not just a label. */
 .status-action {
   font-family: inherit;

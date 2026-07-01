@@ -14,6 +14,7 @@ import {
   type Shortcut,
 } from "../shortcuts";
 import { connection, type ConnState } from "../lib/connection";
+import { formatRtt } from "../lib/latency";
 import { tapFeedback } from "../lib/haptics";
 
 interface Props {
@@ -36,6 +37,9 @@ export function ControllerScreen({
   const [cat, setCat] = useState<CategoryId>("edit");
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
+  // The live transport's median round-trip time, refreshed each heartbeat sample —
+  // the visible end of the latency A/B. Empty until the first ping is answered.
+  const [rtt, setRtt] = useState("");
   const shortcuts = useSyncExternalStore(subscribe, getShortcuts);
   // Held in a ref so rapid taps actually clear the previous dismiss timer — a
   // value stashed on the function object would be lost on every re-render, so an
@@ -56,6 +60,21 @@ export function ControllerScreen({
       off();
     };
   }, []);
+
+  // Refresh the latency badge on each RTT sample; blank it whenever we're not
+  // live so a stale number can't linger on a dropped link.
+  useEffect(() => {
+    const off = connection.onRtt(() => {
+      const summary = connection.liveLatency();
+      setRtt(summary ? formatRtt(summary.median) : "");
+    });
+    return () => {
+      off();
+    };
+  }, []);
+  useEffect(() => {
+    if (state !== "live") setRtt("");
+  }, [state]);
 
   function fire(s: Shortcut) {
     connection.os = os;
@@ -94,6 +113,7 @@ export function ControllerScreen({
           <span className="status" data-live={state}>
             <span className="led" />
             {state === "live" ? connection.host || "Connected" : "Linking…"}
+            {state === "live" && rtt ? <span className="rtt">{rtt}</span> : null}
           </span>
         ) : (
           <button

@@ -10,7 +10,13 @@
 //   server -> { v:1, t:"hello", d:{ host, os, version } } | "ack" | "pong" | "error"
 
 import type { Combo, OS } from "../shortcuts";
-import { RttWindow, pickFastest, type TransportKind, type TransportLatency } from "./latency";
+import {
+  RttWindow,
+  pickFastest,
+  type TransportKind,
+  type TransportLatency,
+  type LatencySummary,
+} from "./latency";
 
 export type ConnState = "idle" | "connecting" | "live" | "error";
 
@@ -444,6 +450,13 @@ export class Connection {
   /** The A/B verdict: which sampled transport is fastest (null until we have data). */
   fastestTransport(): TransportKind | null {
     return pickFastest(this.latencySummaries());
+  }
+
+  /** Latency summary for the transport we're live on now (null if none/unsampled). */
+  liveLatency(): LatencySummary | null {
+    const kind = this.transport?.kind;
+    if (!kind) return null;
+    return this.rttWindows.get(kind)?.summary() ?? null;
   }
   private set(s: ConnState) {
     this.state = s;
