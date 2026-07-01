@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 import { injectCombo } from "./keys.js";
+import { parseInboundFrame } from "./frame.js";
 import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
 import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
@@ -302,25 +303,23 @@ wss.on("connection", (ws, req) => {
   ws.send(JSON.stringify({ v: 1, t: "hello", d: { host: HOSTNAME, os: PLATFORM, version: VERSION } }));
 
   ws.on("message", async (raw) => {
-    let frame;
-    try {
-      frame = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
+    // parseInboundFrame guards the shape (bad JSON, a bare `null`, non-objects,
+    // a key frame missing its payload) so this handler never throws on a
+    // malformed message from a paired — or misbehaving — client.
+    const frame = parseInboundFrame(raw);
+    if (!frame) return;
     if (frame.t === "ping") {
       ws.send(JSON.stringify({ v: 1, t: "pong" }));
       return;
     }
-    if (frame.t === "key" && frame.d) {
-      try {
-        const fired = await injectCombo(frame.d);
-        console.log(`⌨  ${fired}`);
-        ws.send(JSON.stringify({ v: 1, t: "ack", d: { combo: fired } }));
-      } catch (e) {
-        console.warn(`✗  ${e.message}`);
-        ws.send(JSON.stringify({ v: 1, t: "error", d: { message: e.message } }));
-      }
+    // frame.t === "key" — payload is a plain object per the guard above.
+    try {
+      const fired = await injectCombo(frame.d);
+      console.log(`⌨  ${fired}`);
+      ws.send(JSON.stringify({ v: 1, t: "ack", d: { combo: fired } }));
+    } catch (e) {
+      console.warn(`✗  ${e.message}`);
+      ws.send(JSON.stringify({ v: 1, t: "error", d: { message: e.message } }));
     }
   });
 
