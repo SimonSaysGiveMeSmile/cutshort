@@ -4,17 +4,22 @@ import { ControllerScreen } from "./components/ControllerScreen";
 import { ThemeSheet } from "./components/ThemeSheet";
 import { bindAutoWake, connection, detectAgent, type ConnState } from "./lib/connection";
 import { applyMode, loadMode, loadTheme, type Mode } from "./themes";
+import { loadOS, saveOS } from "./lib/osPref";
 import type { OS } from "./shortcuts";
 
 export default function App() {
   const [screen, setScreen] = useState<"connect" | "deck">("connect");
   const [state, setState] = useState<ConnState>(connection.state);
-  const [os, setOS] = useState<OS>(connection.os);
+  const [os, setOS] = useState<OS>(loadOS);
   const [theme, setTheme] = useState(loadTheme());
   const [mode, setMode] = useState<Mode>(loadMode(theme));
   const [showThemes, setShowThemes] = useState(false);
 
   useEffect(() => {
+    // Point the transport at the remembered OS before any key can fire, so a
+    // persisted "win" sends win combos even pre-connect. A pairing os param or a
+    // hello frame overrides this once we're actually talking to an agent.
+    connection.os = loadOS();
     const off = connection.onState(setState);
     // Reconnect when the user returns to the app or the network comes back.
     const unwake = bindAutoWake();
@@ -37,6 +42,7 @@ export default function App() {
   function setOSBoth(next: OS) {
     setOS(next);
     connection.os = next;
+    saveOS(next); // remember the manual choice across reloads
   }
 
   function toggleMode() {
