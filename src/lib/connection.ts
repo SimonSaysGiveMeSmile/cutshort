@@ -10,6 +10,7 @@
 //   server -> { v:1, t:"hello", d:{ host, os, version } } | "ack" | "pong" | "error"
 
 import type { Combo, OS } from "../shortcuts";
+import { RttWindow, pickFastest, type TransportKind, type TransportLatency } from "./latency";
 
 export type ConnState = "idle" | "connecting" | "live" | "error";
 
@@ -19,7 +20,7 @@ export interface KeyFrame {
   d: { mods: string[]; key: string; os: OS };
 }
 
-type ServerFrame =
+export type ServerFrame =
   | { v: 1; t: "hello"; d: { host: string; os: OS; version: string } }
   | { v: 1; t: "ack"; d: { combo: string } }
   | { v: 1; t: "pong" }
@@ -33,6 +34,12 @@ export interface Transport {
   onFrame?: (f: ServerFrame) => void;
   /** Fired when the link drops on its own (not via close()) after going live. */
   onClose?: () => void;
+  /**
+   * Fired with a round-trip time in milliseconds each time a ping is answered.
+   * Feeds the transport latency A/B (see latency.ts) — a transport that has no
+   * ping/pong just never calls it, and pickFastest() ignores the empty entry.
+   */
+  onRtt?: (ms: number) => void;
 }
 
 export interface Pairing {
@@ -121,10 +128,14 @@ class WsTransport implements Transport {
   readonly kind: "lan" | "tunnel";
   onFrame?: (f: ServerFrame) => void;
   onClose?: () => void;
+  onRtt?: (ms: number) => void;
   private ws: WebSocket | null = null;
   private url: string;
   private opened = false;
   private closedByUs = false;
+  // When the outstanding heartbeat ping was sent, so the matching pong yields an
+  // RTT sample for the latency A/B. 0 = no ping awaiting a pong.
+  private pingSentAt = 0;
   // Heartbeat: a Cloudflare Quick Tunnel drops a WebSocket after ~100s idle, so
   // we ping well under that to keep an unused deck warm. The ping doubles as a
   // liveness probe — if the agent doesn't pong back in time the socket is a
@@ -199,6 +210,9 @@ class WsTransport implements Transport {
     if (!this.pongTimer) {
       this.pongTimer = setTimeout(() => this.onPongTimeout(), WsTransport.PONG_TIMEOUT_MS);
     }
+    // Stamp the send so the pong can be turned into an RTT sample. One ping is in
+    // flight at a time (interval 25s >> pong timeout 10s), so a single stamp holds.
+    this.pingSentAt = Date.now();
     this.ws.send(JSON.stringify({ v: 1, t: "ping" }));
   }
 
@@ -206,6 +220,10 @@ class WsTransport implements Transport {
     if (this.pongTimer) {
       clearTimeout(this.pongTimer);
       this.pongTimer = null;
+    }
+    if (this.pingSentAt) {
+      this.onRtt?.(Date.now() - this.pingSentAt);
+      this.pingSentAt = 0;
     }
   }
 
@@ -240,6 +258,13 @@ class WsTransport implements Transport {
 }
 
 /** Minimal shape of the Web Bluetooth bits we touch (not in default DOM types). */
+interface BleCharacteristic {
+  writeValue(v: BufferSource): Promise<void>;
+  startNotifications(): Promise<BleCharacteristic>;
+  addEventListener(type: "characteristicvaluechanged", fn: () => void): void;
+  removeEventListener(type: "characteristicvaluechanged", fn: () => void): void;
+  value?: DataView;
+}
 interface BleDevice {
   addEventListener(type: "gattserverdisconnected", fn: () => void): void;
   removeEventListener(type: "gattserverdisconnected", fn: () => void): void;
@@ -247,26 +272,53 @@ interface BleDevice {
     connected: boolean;
     connect(): Promise<{
       getPrimaryService(s: string): Promise<{
-        getCharacteristic(c: string): Promise<{ writeValue(v: BufferSource): Promise<void> }>;
+        getCharacteristic(c: string): Promise<BleCharacteristic>;
       }>;
     }>;
     disconnect(): void;
   };
 }
 
-/** Web Bluetooth transport — a supplementary/offline path (GATT write). */
+/**
+ * Decode a GATT notification payload (a DataView of UTF-8 JSON) into a server
+ * frame. Pure so it's testable without a BLE stack; returns null on any garbage
+ * (partial write, non-JSON, or a shape that isn't a frame) rather than throwing
+ * into the notification handler.
+ */
+export function decodeBleFrame(view: DataView): ServerFrame | null {
+  try {
+    const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    const frame = JSON.parse(new TextDecoder().decode(bytes));
+    return frame && typeof frame.t === "string" ? (frame as ServerFrame) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Web Bluetooth transport — a supplementary/offline path (GATT write + notify). */
 class BluetoothTransport implements Transport {
   readonly kind = "bluetooth" as const;
+  onFrame?: (f: ServerFrame) => void;
   onClose?: () => void;
+  onRtt?: (ms: number) => void;
   private static SERVICE = "0000c45b-0000-1000-8000-00805f9b34fb";
   private static CHAR = "0000c45c-0000-1000-8000-00805f9b34fb";
-  private char: { writeValue(v: BufferSource): Promise<void> } | null = null;
+  private char: BleCharacteristic | null = null;
   private device: BleDevice | null = null;
   private closedByUs = false;
   // A GATT drop (device powered off / out of range) is the BLE equivalent of a
   // socket close — surface it so the deck doesn't keep reading "live".
   private onDisconnect = () => {
     if (!this.closedByUs) this.onClose?.();
+  };
+  // A notification arrived: the characteristic's `value` now holds the frame the
+  // agent pushed back (hello / ack / error). Without this, BLE was a blind pipe
+  // that could never report a failed injection.
+  private onNotify = () => {
+    const v = this.char?.value;
+    if (!v) return;
+    const frame = decodeBleFrame(v);
+    if (frame) this.onFrame?.(frame);
   };
 
   static supported() {
@@ -283,15 +335,27 @@ class BluetoothTransport implements Transport {
     const server = await device.gatt!.connect();
     const svc = await server.getPrimaryService(BluetoothTransport.SERVICE);
     this.char = await svc.getCharacteristic(BluetoothTransport.CHAR);
+    // Subscribe to the return channel. Best-effort: a write-only characteristic
+    // (no notify) still carries key frames — we just won't hear acks/errors back.
+    try {
+      await this.char.startNotifications();
+      this.char.addEventListener("characteristicvaluechanged", this.onNotify);
+    } catch {
+      /* notify unsupported — writes still work */
+    }
   }
 
   send(frame: KeyFrame) {
-    this.char?.writeValue(new TextEncoder().encode(JSON.stringify(frame)));
+    // Fire-and-forget, but swallow the write rejection (device out of range mid-
+    // tap) so it doesn't surface as an unhandled promise rejection; a genuine
+    // drop arrives via gattserverdisconnected instead.
+    this.char?.writeValue(new TextEncoder().encode(JSON.stringify(frame))).catch(() => {});
   }
 
   close() {
     this.closedByUs = true;
     try {
+      this.char?.removeEventListener("characteristicvaluechanged", this.onNotify);
       this.device?.removeEventListener("gattserverdisconnected", this.onDisconnect);
       if (this.device?.gatt?.connected) this.device.gatt.disconnect();
     } catch {
@@ -335,6 +399,12 @@ export class Connection {
   // socket stays live (state doesn't change), so the UI needs its own channel to
   // surface that instead of leaving the deck green while taps silently no-op.
   private errorListeners = new Set<(msg: string) => void>();
+  // Recent RTT per transport kind, fed by each transport's ping/pong. This is the
+  // raw material for the latency A/B: latencySummaries() collapses it and
+  // fastestTransport() ranks it. Kept across a single kind's reconnects so a brief
+  // blip doesn't wipe the sampled history.
+  private rttWindows = new Map<TransportKind, RttWindow>();
+  private rttListeners = new Set<(kind: TransportKind, ms: number) => void>();
 
   onState(fn: (s: ConnState) => void) {
     this.listeners.add(fn);
@@ -343,6 +413,37 @@ export class Connection {
   onError(fn: (msg: string) => void) {
     this.errorListeners.add(fn);
     return () => this.errorListeners.delete(fn);
+  }
+  onRtt(fn: (kind: TransportKind, ms: number) => void) {
+    this.rttListeners.add(fn);
+    return () => this.rttListeners.delete(fn);
+  }
+
+  /** Record an RTT sample from the live transport into its recent-window ring. */
+  private recordRtt(t: Transport, ms: number) {
+    if (t !== this.transport) return; // stale sample from a replaced socket
+    let w = this.rttWindows.get(t.kind);
+    if (!w) {
+      w = new RttWindow();
+      this.rttWindows.set(t.kind, w);
+    }
+    w.record(ms);
+    this.rttListeners.forEach((l) => l(t.kind, ms));
+  }
+
+  /** Per-transport latency summaries for whichever kinds have samples. */
+  latencySummaries(): TransportLatency[] {
+    const out: TransportLatency[] = [];
+    for (const [kind, w] of this.rttWindows) {
+      const summary = w.summary();
+      if (summary) out.push({ kind, summary });
+    }
+    return out;
+  }
+
+  /** The A/B verdict: which sampled transport is fastest (null until we have data). */
+  fastestTransport(): TransportKind | null {
+    return pickFastest(this.latencySummaries());
   }
   private set(s: ConnState) {
     this.state = s;
@@ -385,6 +486,10 @@ export class Connection {
     // the background. (No-op on the reconnect path, where it's already null.)
     this.transport?.close();
     this.transport = null;
+    // A fresh pair to a *different* target starts a new latency A/B — don't let
+    // one machine's RTTs blend into another's window. The auto-reconnect path
+    // re-opens the same wantUrl (urls match), so a reconnect keeps its history.
+    if (this.wantUrl && this.wantUrl.url !== p.url) this.rttWindows.clear();
     // scheduleReconnect() already moved us to "connecting" for the backoff wait;
     // don't re-emit the same state when the retry timer actually fires.
     if (this.state !== "connecting") this.set("connecting");
@@ -399,6 +504,7 @@ export class Connection {
       if (t === this.transport) this.onServerFrame(f);
     };
     t.onClose = () => this.onTransportClosed(t);
+    t.onRtt = (ms) => this.recordRtt(t, ms);
     try {
       await t.connect();
       // Superseded mid-handshake (close()/new pair() ran): don't go live, just
@@ -441,7 +547,11 @@ export class Connection {
     }
     this.set("connecting");
     const t = new BluetoothTransport();
+    t.onFrame = (f) => {
+      if (t === this.transport) this.onServerFrame(f);
+    };
     t.onClose = () => this.onTransportClosed(t);
+    t.onRtt = (ms) => this.recordRtt(t, ms);
     try {
       await t.connect();
       if (myEpoch !== this.epoch) {
@@ -504,16 +614,20 @@ export class Connection {
   }
 
   private onServerFrame(f: ServerFrame) {
+    // Optional-chain `d`: a hello/error frame that arrives without its payload
+    // (truncated BLE notification, a hand-rolled/malformed agent) must degrade to
+    // a default, not throw a TypeError out of the socket's onmessage / BLE notify
+    // handler. Guards both transports since they share this handler.
     if (f.t === "hello") {
-      this.host = f.d.host || this.host;
-      this.os = f.d.os || this.os;
+      this.host = f.d?.host || this.host;
+      this.os = f.d?.os || this.os;
       // re-emit so the UI refreshes the machine name
       this.set(this.state);
     } else if (f.t === "error") {
       // The agent injected nothing (e.g. macOS Accessibility permission was revoked
       // while live, or nut.js threw). The socket is fine, so state stays "live" — but
       // we must tell the user their tap didn't land instead of silently confirming it.
-      this.lastError = f.d.message || "Agent error";
+      this.lastError = f.d?.message || "Agent error";
       this.errorListeners.forEach((l) => l(this.lastError));
     }
   }
@@ -535,6 +649,7 @@ export class Connection {
     this.clearReconnect();
     this.transport?.close();
     this.transport = null;
+    this.rttWindows.clear(); // new session: don't inherit a prior link's RTTs
     this.set("idle");
   }
 }

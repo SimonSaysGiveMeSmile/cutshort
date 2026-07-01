@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parsePairing, detectAgent, Connection, bindAutoWake, type KeyFrame } from "./connection";
+import {
+  parsePairing,
+  detectAgent,
+  decodeBleFrame,
+  Connection,
+  bindAutoWake,
+  type KeyFrame,
+} from "./connection";
 import type { Combo } from "../shortcuts";
 
 describe("parsePairing", () => {
@@ -172,11 +179,30 @@ class FakeWebSocket {
   }
 }
 
-// Minimal Web Bluetooth device stand-in: drives the GATT chain and lets a test
-// fire a gattserverdisconnected event.
+// Minimal Web Bluetooth device stand-in: drives the GATT chain, lets a test fire
+// a gattserverdisconnected event, and lets a test push a notification frame back
+// through the characteristic's return channel.
 function fakeBleDevice() {
   const listeners: Record<string, Array<() => void>> = {};
-  const char = { writeValue: vi.fn(async () => {}) };
+  const charListeners: Record<string, Array<() => void>> = {};
+  const char = {
+    value: undefined as DataView | undefined,
+    writeValue: vi.fn(async () => {}),
+    startNotifications: vi.fn(async () => char),
+    addEventListener: (t: string, fn: () => void) => {
+      (charListeners[t] ||= []).push(fn);
+    },
+    removeEventListener: (t: string, fn: () => void) => {
+      charListeners[t] = (charListeners[t] || []).filter((f) => f !== fn);
+    },
+    // Simulate the agent pushing a frame back: stamp the DataView the transport
+    // reads, then fire the characteristicvaluechanged listeners.
+    notify: (frame: unknown) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(frame));
+      char.value = new DataView(bytes.buffer);
+      (charListeners["characteristicvaluechanged"] || []).forEach((f) => f());
+    },
+  };
   const gatt = {
     connected: true,
     connect: vi.fn(async () => ({
@@ -683,6 +709,170 @@ describe("Connection", () => {
     device.emit("gattserverdisconnected"); // a late self-disconnect must not resurrect "error"
     expect(c.state).toBe("idle");
     expect(seen).toEqual(["idle"]);
+  });
+
+  it("turns a ping/pong round-trip into an RTT sample for the latency A/B", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const rtts: Array<[string, number]> = [];
+      c.onRtt((kind, ms) => rtts.push([kind, ms]));
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      const ws = FakeWebSocket.last!;
+
+      // The heartbeat interval starts at virtual t=0 (socket opened during the 1ms
+      // advance), so land exactly on its 25s fire, then let 30ms of round-trip pass.
+      await vi.advanceTimersByTimeAsync(24_999); // heartbeat fires a ping at t=25000...
+      await vi.advanceTimersByTimeAsync(30); // ...30ms of round-trip elapses...
+      ws.onmessage!({ data: JSON.stringify({ v: 1, t: "pong" }) }); // ...pong lands
+
+      expect(rtts).toEqual([["lan", 30]]);
+      expect(c.latencySummaries()).toEqual([
+        { kind: "lan", summary: { count: 1, min: 30, median: 30, p95: 30, mean: 30 } },
+      ]);
+      expect(c.fastestTransport()).toBe("lan");
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not record an RTT for an unsolicited pong (no ping outstanding)", async () => {
+    const c = new Connection();
+    const rtts: number[] = [];
+    c.onRtt((_kind, ms) => rtts.push(ms));
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "x" });
+    // A pong with no ping in flight must not fabricate a bogus (huge) sample.
+    FakeWebSocket.last!.onmessage!({ data: JSON.stringify({ v: 1, t: "pong" }) });
+    expect(rtts).toEqual([]);
+    expect(c.fastestTransport()).toBeNull();
+    c.close();
+  });
+
+  // Record one RTT sample on the live link, returning the ws so the caller can
+  // drive further behavior. Shares the fake-timer phase math with the A/B test.
+  async function pairAndSample(c: Connection, url: string, host: string) {
+    const pairing = c.pair({ url, host });
+    await vi.advanceTimersByTimeAsync(1);
+    await pairing;
+    const ws = FakeWebSocket.last!;
+    await vi.advanceTimersByTimeAsync(24_999); // heartbeat fires a ping
+    await vi.advanceTimersByTimeAsync(15); // round-trip elapses
+    ws.onmessage!({ data: JSON.stringify({ v: 1, t: "pong" }) });
+    return ws;
+  }
+
+  it("clears sampled latency on close() so a new session can't inherit stale RTTs", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      await pairAndSample(c, "ws://192.168.1.9/ws", "x");
+      expect(c.latencySummaries()).toHaveLength(1);
+      c.close();
+      expect(c.latencySummaries()).toEqual([]); // wiped on teardown
+      expect(c.fastestTransport()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-pairing to a different machine starts a fresh A/B (no cross-machine blend)", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      await pairAndSample(c, "ws://192.168.1.9/ws", "A");
+      expect(c.latencySummaries()).toHaveLength(1);
+      // Same kind ("lan"), DIFFERENT machine — A's samples must not bleed into B.
+      const p2 = c.pair({ url: "ws://192.168.1.50/ws", host: "B" });
+      await vi.advanceTimersByTimeAsync(1);
+      await p2;
+      expect(c.latencySummaries()).toEqual([]);
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps sampled latency across an auto-reconnect to the same target", async () => {
+    vi.useFakeTimers();
+    try {
+      const c = new Connection();
+      const ws1 = await pairAndSample(c, "ws://192.168.1.9/ws", "x");
+      expect(c.latencySummaries()).toHaveLength(1);
+      ws1.drop(); // unexpected drop → auto-reconnect to the SAME url
+      await vi.advanceTimersByTimeAsync(600);
+      expect(c.state).toBe("live");
+      expect(c.latencySummaries()).toHaveLength(1); // history survives the reconnect
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tolerates a malformed hello/error frame missing its payload (no TypeError)", async () => {
+    const c = new Connection();
+    await c.pair({ url: "ws://192.168.1.9/ws", host: "Original" });
+    const ws = FakeWebSocket.last!;
+    // hello with no `d` must not throw out of onmessage; keeps the prior host.
+    expect(() => ws.onmessage!({ data: JSON.stringify({ v: 1, t: "hello" }) })).not.toThrow();
+    expect(c.host).toBe("Original");
+    // error with no `d` falls back to a default message instead of crashing.
+    const errors: string[] = [];
+    c.onError((m) => errors.push(m));
+    expect(() => ws.onmessage!({ data: JSON.stringify({ v: 1, t: "error" }) })).not.toThrow();
+    expect(errors).toEqual(["Agent error"]);
+    expect(c.state).toBe("live");
+    c.close();
+  });
+
+  it("surfaces an agent error frame pushed back over the BLE return channel", async () => {
+    const device = fakeBleDevice();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+    const c = new Connection();
+    expect(await c.pairBluetooth()).toBe(true);
+    expect(device.char.startNotifications).toHaveBeenCalled(); // subscribed to notify
+
+    const errors: string[] = [];
+    c.onError((m) => errors.push(m));
+    device.char.notify({ v: 1, t: "error", d: { message: "BLE injection failed" } });
+
+    expect(errors).toEqual(["BLE injection failed"]);
+    expect(c.lastError).toBe("BLE injection failed");
+    expect(c.state).toBe("live"); // the link is fine — only the injection failed
+    c.close();
+  });
+
+  it("renames the machine from a BLE 'hello' notification", async () => {
+    const device = fakeBleDevice();
+    vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+    const c = new Connection();
+    await c.pairBluetooth();
+    device.char.notify({ v: 1, t: "hello", d: { host: "Studio-Mac", os: "mac", version: "1" } });
+    expect(c.host).toBe("Studio-Mac");
+    c.close();
+  });
+});
+
+describe("decodeBleFrame", () => {
+  const view = (obj: unknown) => new DataView(new TextEncoder().encode(JSON.stringify(obj)).buffer);
+
+  it("decodes a UTF-8 JSON frame from a DataView", () => {
+    expect(decodeBleFrame(view({ v: 1, t: "pong" }))).toEqual({ v: 1, t: "pong" });
+  });
+
+  it("reads only the view's slice, not the whole backing buffer", () => {
+    // A DataView over a sub-range of a larger buffer must decode just its window.
+    const bytes = new TextEncoder().encode('XX{"v":1,"t":"pong"}YY');
+    const sliced = new DataView(bytes.buffer, 2, bytes.length - 4);
+    expect(decodeBleFrame(sliced)).toEqual({ v: 1, t: "pong" });
+  });
+
+  it("returns null for non-JSON, partial writes, or non-frame shapes", () => {
+    expect(decodeBleFrame(new DataView(new TextEncoder().encode("not json{").buffer))).toBeNull();
+    expect(decodeBleFrame(view({ nope: true }))).toBeNull(); // no string `t`
+    expect(decodeBleFrame(view(42))).toBeNull();
   });
 });
 
