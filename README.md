@@ -48,20 +48,29 @@ pairing page and the quit / accessibility controls live on a **separate loopback
 listener** (`127.0.0.1`) the tunnel physically can't reach; the public `0.0.0.0`
 listener serves only the SPA and the token-gated `/ws`.
 
-### Transport is pluggable — to be decided by test results
+### Transport is pluggable — and latency-measured
 
 `src/lib/connection.ts` defines one `Transport` interface so we can A/B latency
-before committing:
+between pipes:
 
 | Transport   | Path                                  | Status        |
 | ----------- | ------------------------------------- | ------------- |
 | `lan`       | WebSocket over local WiFi (`*.local`) | primary       |
 | `tunnel`    | WebSocket over Cloudflare tunnel      | fallback      |
-| `bluetooth` | Web Bluetooth GATT write (offline)    | supplementary |
+| `bluetooth` | Web Bluetooth GATT write + notify     | supplementary |
 
 `detectAgent()` auto-resolves the endpoint from the scanned QR / serving origin;
 `Connection.pair()` opens the socket and surfaces a real error if the agent
 isn't reachable (no silent demo mode).
+
+The A/B is real, not aspirational: every transport's heartbeat ping/pong is timed
+into a round-trip sample (`src/lib/latency.ts`), so the top bar shows the live
+median RTT (e.g. `DevBox · 24ms`) and `Connection.fastestTransport()` ranks the
+sampled pipes by median (ties break toward the preference order above rather than
+sub-5ms noise). LAN and tunnel are sampled today off the existing keepalive;
+Bluetooth is now a two-way link — it decodes GATT notifications back into
+`hello`/`ack`/`error` frames — and joins the RTT A/B once an agent-side BLE
+peripheral answers its pings.
 
 ## The 10 skins
 
@@ -140,7 +149,8 @@ src/
   shortcuts.ts            shortcut data model + OS combo resolution
   themes.ts               10-theme registry + persistence
   index.css               base layer + all 10 themes
-  lib/connection.ts       pluggable transport (lan/tunnel/bluetooth)
+  lib/connection.ts       pluggable transport (lan/tunnel/bluetooth) + reconnect
+  lib/latency.ts          RTT sampling + transport A/B (summarize / pickFastest)
   components/
     ConnectScreen.tsx     agent command + manual URL + Bluetooth
     ControllerScreen.tsx  top bar, OS switch, mode toggle, categories, deck
