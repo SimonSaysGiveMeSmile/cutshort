@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Plus, Trash2, Eye, EyeOff, Check } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Check, Sparkles } from "lucide-react";
 import { Icon, ICON_NAMES } from "./Icon";
+import { parseShortcutPhrase } from "../lib/nlShortcut";
 import {
   CATEGORIES,
   comboLabel,
@@ -39,6 +40,9 @@ export function EditSheet({ os, category, onClose }: Props) {
   const [icon, setIcon] = useState("Zap");
   const [mods, setMods] = useState<ModToken[]>(["MOD"]);
   const [key, setKey] = useState("");
+  // natural-language "describe it" box: parses a phrase into the form fields
+  const [phrase, setPhrase] = useState("");
+  const [hint, setHint] = useState("");
 
   const current = getShortcuts().filter((s) => s.category === cat);
   const hiddenInCat = builtins.filter((s) => s.category === cat && isHidden(s.id));
@@ -48,6 +52,22 @@ export function EditSheet({ os, category, onClose }: Props) {
 
   function toggleMod(m: ModToken) {
     setMods((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+  }
+
+  // Turn a spoken phrase into the combo fields, leaving icon/category for the
+  // user. The manual chips + Add button stay the source of truth — this just
+  // fills them, then the same add() persists via addCustom().
+  function applyPhrase() {
+    const parsed = parseShortcutPhrase(phrase, os);
+    if (!parsed) {
+      setHint('Add a key too — e.g. "rename symbol f2".');
+      return;
+    }
+    setMods(parsed.mods);
+    setKey(parsed.key);
+    if (parsed.label) setLabel(parsed.label);
+    setHint("");
+    setPhrase("");
   }
 
   function add() {
@@ -139,6 +159,38 @@ export function EditSheet({ os, category, onClose }: Props) {
           <div className="edit-add-head">
             <Plus size={15} strokeWidth={2.2} /> New shortcut
           </div>
+
+          <div className="edit-describe">
+            <input
+              className="input"
+              placeholder="Describe it — “toggle sidebar cmd b”"
+              value={phrase}
+              onChange={(e) => {
+                setPhrase(e.target.value);
+                if (hint) setHint("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applyPhrase();
+                }
+              }}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-label="Describe a shortcut in words"
+            />
+            <button
+              type="button"
+              className="edit-describe-btn"
+              onClick={applyPhrase}
+              disabled={!phrase.trim()}
+              aria-label="Fill the form from your description"
+            >
+              <Sparkles size={15} strokeWidth={2} /> Fill
+            </button>
+          </div>
+          {hint && <div className="edit-describe-hint">{hint}</div>}
 
           <input
             className="input"

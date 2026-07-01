@@ -606,6 +606,44 @@ body {
   max-width: none;
   width: 100%;
 }
+/* "Describe it" — natural-language phrase → pre-filled combo fields. */
+.edit-describe {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.edit-describe .input {
+  flex: 1;
+}
+.edit-describe-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--key-border);
+  background: var(--key-bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.edit-describe-btn:active {
+  transform: scale(0.96);
+}
+.edit-describe-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.edit-describe-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: -4px;
+}
 .mod-chips {
   display: flex;
   flex-wrap: wrap;
