@@ -105,6 +105,7 @@ export function ConnectScreen({ onConnected }: Props) {
             <span className="cp-prompt">&gt;</span>
             <input
               className="cp-input"
+              aria-label="Agent hostname and port"
               placeholder="hostname.local:8787"
               value={manual}
               onChange={(e) => setManual(e.target.value)}

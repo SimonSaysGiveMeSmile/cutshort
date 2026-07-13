@@ -109,6 +109,17 @@ export function ControllerScreen({
           CutShort
         </span>
         <span className="spacer" />
+        {/* Screen-reader-only connection-state announcement. The pill below conveys
+            state by LED color + text but isn't a live region; this persistent region
+            makes each transition audible without re-announcing the RTT badge (which
+            updates every heartbeat) — it reflects state only. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {state === "live"
+            ? `Connected to ${connection.host || "your computer"}`
+            : state === "connecting"
+              ? "Connecting to your computer"
+              : "Disconnected from your computer"}
+        </span>
         {state === "live" || state === "connecting" ? (
           <span className="status" data-live={state}>
             <span className="led" />
@@ -179,7 +190,16 @@ export function ControllerScreen({
       </div>
 
       {toast && (
-        <div className="toast" data-ok={toast.ok}>
+        <div
+          className="toast"
+          data-ok={toast.ok}
+          // The only feedback that a keystroke actually fired (or that the agent
+          // reported a failure) — announce it. Errors are assertive (interrupt),
+          // fire confirmations polite.
+          role={toast.ok ? "status" : "alert"}
+          aria-live={toast.ok ? "polite" : "assertive"}
+          aria-atomic="true"
+        >
           {toast.ok ? (
             <CommandIcon size={14} strokeWidth={2.2} />
           ) : (
