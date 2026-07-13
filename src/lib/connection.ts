@@ -91,6 +91,33 @@ function toWs(url: string): string {
   return `${proto}//${u.host}${pathHasWs ? u.pathname : "/ws"}`;
 }
 
+/**
+ * Classify a ws(s):// URL as a LAN link (vs a tunnel) by its *host* alone.
+ * Anchored to the parsed hostname rather than tested as a substring of the whole
+ * URL, so a public tunnel host that merely contains a private-range fragment —
+ * e.g. wss://v10.example.com/ws or wss://my-tunnel-810.example.com/ws — isn't
+ * misread as LAN, and the full RFC-1918 172.16/12 range is recognized (the old
+ * substring regex matched neither correctly). Unparseable input falls back to
+ * non-LAN (treated as a tunnel). Only labels the transport for preference/RTT
+ * ranking — connectivity is identical either way.
+ */
+export function isLanUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    host === "localhost" ||
+    host.endsWith(".local") ||
+    /^127\./.test(host) || // loopback
+    /^10\./.test(host) || // RFC-1918 10/8
+    /^192\.168\./.test(host) || // RFC-1918 192.168/16
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) // RFC-1918 172.16/12
+  );
+}
+
 /** Append a query param to a (possibly already query-bearing) URL. */
 function appendQuery(url: string, key: string, value: string): string {
   const sep = url.includes("?") ? "&" : "?";
@@ -509,8 +536,7 @@ export class Connection {
     this.host = p.host || this.host || "Machine";
     if (p.os) this.os = p.os;
     const myEpoch = ++this.epoch;
-    const isLan = /\.local|192\.168\.|10\.|127\.0\.0\.1|localhost/.test(p.url);
-    const t = new WsTransport(p.url, isLan ? "lan" : "tunnel", p.token);
+    const t = new WsTransport(p.url, isLanUrl(p.url) ? "lan" : "tunnel", p.token);
     // Guard the callback so a hello buffered on an orphaned socket can't clobber
     // host/os or re-emit state after this transport has been replaced.
     t.onFrame = (f) => {
@@ -552,6 +578,10 @@ export class Connection {
     this.clearReconnect();
     this.transport?.close(); // don't leave a live WS socket warm when switching to BLE
     this.transport = null;
+    // BLE begins a fresh latency A/B against a (possibly) different machine — clear
+    // the prior link's WS RTT windows so one machine's samples can't bleed into the
+    // BLE comparison (mirrors the different-target clear in openTransport).
+    this.rttWindows.clear();
     const myEpoch = ++this.epoch;
     if (!BluetoothTransport.supported()) {
       this.lastError = "Web Bluetooth not supported on this device";

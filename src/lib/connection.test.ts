@@ -5,9 +5,39 @@ import {
   decodeBleFrame,
   Connection,
   bindAutoWake,
+  isLanUrl,
   type KeyFrame,
 } from "./connection";
 import type { Combo } from "../shortcuts";
+
+describe("isLanUrl", () => {
+  it("classifies real private / loopback / mDNS hosts as LAN", () => {
+    expect(isLanUrl("ws://192.168.1.9:8787/ws")).toBe(true);
+    expect(isLanUrl("ws://10.0.0.4:8787/ws")).toBe(true);
+    expect(isLanUrl("ws://127.0.0.1:8787/ws")).toBe(true);
+    expect(isLanUrl("ws://localhost:8787/ws")).toBe(true);
+    expect(isLanUrl("ws://mymac.local:8787/ws")).toBe(true);
+    // full RFC-1918 172.16/12 range — the old substring regex missed it entirely
+    expect(isLanUrl("ws://172.16.0.1:8787/ws")).toBe(true);
+    expect(isLanUrl("ws://172.31.255.254:8787/ws")).toBe(true);
+  });
+
+  it("does NOT treat a public tunnel host as LAN for containing a private-range substring", () => {
+    // the old regex matched "10." / "192.168." / ".local" anywhere in the URL
+    expect(isLanUrl("wss://v10.example.com/ws")).toBe(false);
+    expect(isLanUrl("wss://210.tunnel.dev/ws")).toBe(false);
+    expect(isLanUrl("wss://my-tunnel-810.example.com/ws")).toBe(false);
+    expect(isLanUrl("wss://abc123.trycloudflare.com/ws")).toBe(false);
+    // 172.x just outside 16–31 is public space, not RFC-1918
+    expect(isLanUrl("ws://172.15.0.1:8787/ws")).toBe(false);
+    expect(isLanUrl("ws://172.32.0.1:8787/ws")).toBe(false);
+  });
+
+  it("returns false for unparseable input", () => {
+    expect(isLanUrl("not a url")).toBe(false);
+    expect(isLanUrl("")).toBe(false);
+  });
+});
 
 describe("parsePairing", () => {
   it("returns null for empty / whitespace / garbage input", () => {
@@ -733,6 +763,36 @@ describe("Connection", () => {
         { kind: "lan", summary: { count: 1, min: 30, median: 30, p95: 30, mean: 30 } },
       ]);
       expect(c.fastestTransport()).toBe("lan");
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears stale WS RTT windows when switching to Bluetooth (no cross-machine bleed)", async () => {
+    vi.useFakeTimers();
+    try {
+      const device = fakeBleDevice();
+      vi.stubGlobal("navigator", { bluetooth: { requestDevice: async () => device } });
+      const c = new Connection();
+      const pairing = c.pair({ url: "ws://192.168.1.9/ws", host: "MachineA" });
+      await vi.advanceTimersByTimeAsync(1);
+      await pairing;
+      const ws = FakeWebSocket.last!;
+
+      // Land on the heartbeat ping (t=25s) and let a 30ms round-trip land a "lan" sample.
+      await vi.advanceTimersByTimeAsync(24_999);
+      await vi.advanceTimersByTimeAsync(30);
+      ws.onmessage!({ data: JSON.stringify({ v: 1, t: "pong" }) });
+      expect(c.latencySummaries()).toEqual([
+        { kind: "lan", summary: { count: 1, min: 30, median: 30, p95: 30, mean: 30 } },
+      ]);
+
+      // Switching to BLE (a different machine) must not leave MachineA's WS window
+      // behind to skew the BLE A/B — the summaries reset to empty.
+      expect(await c.pairBluetooth()).toBe(true);
+      expect(c.transport?.kind).toBe("bluetooth");
+      expect(c.latencySummaries()).toEqual([]);
       c.close();
     } finally {
       vi.useRealTimers();
