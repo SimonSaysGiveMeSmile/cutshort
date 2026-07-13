@@ -88,7 +88,10 @@ function normalizeKey(word: string): string | null {
   const fkey = /^f([1-9]|1[0-2])$/.exec(word); // f1..f12
   if (fkey) return `F${fkey[1]}`;
   if (/^[a-z0-9]$/.test(word)) return word; // single letter / digit
-  if (/^[/\\`\-=[\];',.]$/.test(word)) return word; // a lone punctuation key
+  // A lone punctuation key. "+" is included so "cmd +" (zoom-in) resolves the same
+  // key as the word form "cmd plus" (KEY_WORDS.plus === "+") instead of parsing to
+  // null — its unshifted twin "=" and "-" were already here.
+  if (/^[+/\\`\-=[\];',.]$/.test(word)) return word;
   return null;
 }
 

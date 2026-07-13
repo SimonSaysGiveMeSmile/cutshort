@@ -64,6 +64,17 @@ describe("parseShortcutPhrase", () => {
     expect(parseShortcutPhrase("cmd /", "mac").key).toBe("/");
   });
 
+  it("resolves +/-/= as the key so the glyph and word forms agree (zoom in/out)", () => {
+    // Regression: "+" used to be missing from normalizeKey's punctuation class, so
+    // "cmd +" parsed to null while its word twin "cmd plus" worked. Pin them together.
+    expect(parseShortcutPhrase("cmd +", "mac")).toEqual({ mods: ["MOD"], key: "+", label: "" });
+    expect(parseShortcutPhrase("cmd plus", "mac")).toEqual({ mods: ["MOD"], key: "+", label: "" });
+    expect(parseShortcutPhrase("cmd -", "mac")).toEqual({ mods: ["MOD"], key: "-", label: "" });
+    expect(parseShortcutPhrase("cmd =", "mac")).toEqual({ mods: ["MOD"], key: "=", label: "" });
+    // leftover words still become the label, key still the trailing "+"
+    expect(parseShortcutPhrase("zoom in cmd +", "mac")).toEqual({ mods: ["MOD"], key: "+", label: "Zoom In" });
+  });
+
   it("canonicalizes modifier order regardless of how they were typed", () => {
     // Typed shift, cmd, alt → sorted to MOD, SHIFT, ALT (built-in display order).
     expect(parseShortcutPhrase("shift cmd alt k", "mac")).toEqual({

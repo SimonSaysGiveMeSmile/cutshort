@@ -81,6 +81,7 @@ describe("injectCombo — base key resolution", () => {
     const cases = [
       ["-", "Minus"],
       ["=", "Equal"],
+      ["+", "Add"], // the "+" a combo carries (e.g. "cmd +" zoom-in) fires the numpad plus
       ["[", "LeftBracket"],
       ["]", "RightBracket"],
       [";", "Semicolon"],

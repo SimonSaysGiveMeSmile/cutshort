@@ -35,6 +35,9 @@ const NAMED = {
   ",": Key.Comma,
   "-": Key.Minus,
   "=": Key.Equal,
+  // The dedicated numpad "+" — a true "+" keysym, so a combo can carry "+" (e.g.
+  // "cmd +" zoom-in) without us synthesizing Shift+"=". Zoom-in bindings accept it.
+  "+": Key.Add,
   "[": Key.LeftBracket,
   "]": Key.RightBracket,
   ";": Key.Semicolon,
