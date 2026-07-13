@@ -36,6 +36,34 @@ describe("renderPairPage", () => {
     expect(html).toContain("/api/open-accessibility");
   });
 
+  // The Stop / Open-Accessibility buttons POST to /api/quit and /api/open-accessibility,
+  // which index.js gates behind the pairing token (tokensMatch(tokenFromUrl(req.url))).
+  // renderPairPage is the ONLY thing that threads that token into the client fetches
+  // (via the `Q` constant), so if this wiring breaks the controls silently 401 and the
+  // user can't stop the agent from its own page. Reconstruct the runtime URLs to prove it.
+  function runtimeQ(html) {
+    const m = html.match(/const Q = (".*?");/);
+    if (!m) throw new Error("no Q constant found in pair page script");
+    return JSON.parse(m[1]);
+  }
+
+  it("threads the pairing token into the control fetches so they pass the loopback auth check", async () => {
+    const html = await renderPairPage({ entries: ENTRIES, appName: "CutShort", token: "tok123" });
+    const Q = runtimeQ(html);
+    // the token is embedded in exactly the ?t=<token> form the auth check parses…
+    expect(Q).toBe("?t=tok123");
+    // …and both control endpoints concatenate it, so the POSTs actually carry it.
+    expect("/api/quit" + Q).toBe("/api/quit?t=tok123");
+    expect("/api/open-accessibility" + Q).toBe("/api/open-accessibility?t=tok123");
+  });
+
+  it("omits the query entirely when no token is set (nothing to append)", async () => {
+    const html = await renderPairPage({ entries: ENTRIES, appName: "CutShort" });
+    const Q = runtimeQ(html);
+    expect(Q).toBe("");
+    expect("/api/quit" + Q).toBe("/api/quit");
+  });
+
   it("shows a waiting message (and no cards) when no address is reachable yet", async () => {
     const html = await renderPairPage({ entries: [], appName: "CutShort" });
     expect(html).toMatch(/waiting for the network/i);
