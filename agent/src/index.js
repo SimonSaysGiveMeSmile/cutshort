@@ -31,6 +31,7 @@ import { parseInboundFrame } from "./frame.js";
 import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
 import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
+import { routePublic, routeLocal, healthPayload, withinDist } from "./serve.js";
 import { startHeartbeat } from "./heartbeat.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
@@ -150,10 +151,6 @@ function forbidden(res) {
   res.end('{"ok":false,"error":"forbidden"}');
 }
 
-function withinDist(p, distRoot) {
-  return p === distRoot || p.startsWith(distRoot + path.sep);
-}
-
 // ── public surface (LAN + tunnel): SPA + token-gated /ws ONLY ───────
 // The pairing page and control POSTs are deliberately NOT here: the page embeds
 // the token and the POSTs act on it, so they live on a separate loopback-only
@@ -161,37 +158,30 @@ function withinDist(p, distRoot) {
 // them on this listener — cloudflared/ngrok forward from localhost, so every
 // tunnel request would look loopback.
 function servePublic(req, res) {
-  const url = (req.url || "/").split("?")[0];
+  // Pure branch selection (health / no-bundle info / contained static / forbidden)
+  // lives in routePublic; only the FS I/O + res writes stay here. The health probe
+  // is info-free (no host/os — the hostname is often the owner's real name and this
+  // rides the public tunnel); host/os ride the token-gated `hello` frame instead.
+  // Only when a bundle exists: DIST is undefined in hosted-deck mode, and
+  // path.resolve(undefined) throws. routePublic never touches distRoot unless
+  // hasApp is true (it returns "info" first), and the realpath block below only
+  // runs for a "static" result — which likewise implies a bundle.
+  const distRoot = HAS_APP ? path.resolve(DIST) : null;
+  const r = routePublic({ url: req.url || "/", hasApp: HAS_APP, distRoot });
 
-  if (url === "/health" || url === "/api/ping") {
-    // Unauthenticated and reachable over the public tunnel, so it must NOT leak the
-    // machine's hostname (often the owner's real name) or OS. host/os ride the
-    // token-gated `hello` frame instead, for paired clients only.
+  if (r.kind === "health") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, version: VERSION }));
+    res.end(JSON.stringify(healthPayload(VERSION)));
     return;
   }
-
-  if (!HAS_APP) {
+  if (r.kind === "info") {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("CutShort agent is running. Scan the QR from the terminal/browser to open the deck.");
     return;
   }
-  let urlPath;
-  try {
-    urlPath = decodeURIComponent(url);
-  } catch {
-    return forbidden(res); // malformed percent-encoding
-  }
-  if (urlPath.includes("\0")) return forbidden(res); // poison null byte
-  if (urlPath === "/") urlPath = "/index.html";
-  // Containment: resolve against DIST with a leading "." so absolute-looking or
-  // "../"-laden requests (which survive Node's un-normalized req.url) can't
-  // escape the served directory and read arbitrary files over the tunnel.
-  const distRoot = path.resolve(DIST);
-  const resolved = path.resolve(distRoot, "." + urlPath);
-  if (!withinDist(resolved, distRoot)) return forbidden(res);
-  let filePath = resolved;
+  if (r.kind === "forbidden") return forbidden(res); // malformed / null byte / "../" escape
+
+  let filePath = r.filePath; // lexically contained; still realpath-checked below
   // SPA fallback + crash-safe stat + symlink containment: realpath collapses any
   // symlink inside dist that points outside, which the lexical check above can't
   // catch. A missing file / removed-mid-request (TOCTOU) falls back to index.html
@@ -219,22 +209,24 @@ function servePublic(req, res) {
 // the 0.0.0.0 port — physically cannot reach it. This is what keeps the
 // token-bearing pairing page from leaking to anyone who knows the tunnel URL.
 function serveLocal(req, res) {
-  const url = (req.url || "/").split("?")[0];
-  if (req.method === "POST" && url === "/api/quit") {
-    if (!isAuthed(req)) return forbidden(res);
+  // Pure route+auth gating (which POSTs need the token, POST-only, /pair, 404)
+  // lives in routeLocal; only the side effects + res writes stay here. isAuthed is
+  // side-effect-free, so computing it up front for every request is harmless.
+  const r = routeLocal({ method: req.method, url: req.url || "/", authed: isAuthed(req) });
+  if (r.kind === "forbidden") return forbidden(res); // control POST without a valid token
+  if (r.kind === "quit") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end('{"ok":true}');
     setTimeout(() => CURRENT_SHUTDOWN(), 150);
     return;
   }
-  if (req.method === "POST" && url === "/api/open-accessibility") {
-    if (!isAuthed(req)) return forbidden(res);
+  if (r.kind === "accessibility") {
     openAccessibilityPane();
     res.writeHead(200, { "content-type": "application/json" });
     res.end('{"ok":true}');
     return;
   }
-  if (url === "/pair") {
+  if (r.kind === "pair") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
       PAIR_HTML ||
