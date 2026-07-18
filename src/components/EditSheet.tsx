@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Eye, EyeOff, Check, Sparkles } from "lucide-react";
 import { Icon, ICON_NAMES } from "./Icon";
-import { parseShortcutPhrase } from "../lib/nlShortcut";
+import { parseShortcutPhrase, normalizeKeyInput, clampLabel, MAX_LABEL } from "../lib/nlShortcut";
 import {
   CATEGORIES,
   comboLabel,
@@ -47,8 +47,13 @@ export function EditSheet({ os, category, onClose }: Props) {
   const current = getShortcuts().filter((s) => s.category === cat);
   const hiddenInCat = builtins.filter((s) => s.category === cat && isHidden(s.id));
 
-  const canAdd = label.trim() && key.trim();
-  const previewCombo = { mods, key: key.trim() || "?" };
+  // Validate the free-form key against what the agent can actually inject, so the
+  // manual path can't persist a deck button that throws `unmapped key` on every tap
+  // (the "describe it" box already rejects such keys — this keeps the two in step).
+  const normalizedKey = normalizeKeyInput(key);
+  const canAdd = label.trim() !== "" && normalizedKey !== null;
+  const keyInvalid = key.trim() !== "" && normalizedKey === null;
+  const previewCombo = { mods, key: normalizedKey ?? "?" };
 
   function toggleMod(m: ModToken) {
     setMods((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
@@ -65,14 +70,14 @@ export function EditSheet({ os, category, onClose }: Props) {
     }
     setMods(parsed.mods);
     setKey(parsed.key);
-    if (parsed.label) setLabel(parsed.label);
+    if (parsed.label) setLabel(clampLabel(parsed.label)); // never exceed the manual cap
     setHint("");
     setPhrase("");
   }
 
   function add() {
-    if (!canAdd) return;
-    addCustom({ label: label.trim(), icon, category: cat, combo: { mods, key: key.trim() } });
+    if (!canAdd || !normalizedKey) return;
+    addCustom({ label: clampLabel(label.trim()), icon, category: cat, combo: { mods, key: normalizedKey } });
     setLabel("");
     setKey("");
     setMods(["MOD"]);
@@ -197,7 +202,7 @@ export function EditSheet({ os, category, onClose }: Props) {
             placeholder="Label (e.g. Rename Symbol)"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            maxLength={18}
+            maxLength={MAX_LABEL}
           />
 
           <div className="mod-chips">
@@ -220,8 +225,15 @@ export function EditSheet({ os, category, onClose }: Props) {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
+              aria-label="Key"
+              aria-invalid={keyInvalid}
             />
           </div>
+          {keyInvalid && (
+            <div className="edit-describe-hint" role="alert">
+              Unknown key — try a letter, a digit, f2, Enter, Space, or /.
+            </div>
+          )}
 
           <div className="icon-grid">
             {ICON_NAMES.map((n) => (

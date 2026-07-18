@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseShortcutPhrase } from "./nlShortcut";
+import { parseShortcutPhrase, normalizeKeyInput, clampLabel, MAX_LABEL } from "./nlShortcut";
 
 describe("parseShortcutPhrase", () => {
   it("returns null for empty / whitespace / keyless phrases", () => {
@@ -163,5 +163,37 @@ describe("parseShortcutPhrase", () => {
       key: "n",
       label: "A Quick Note",
     });
+  });
+});
+
+describe("normalizeKeyInput (manual key-field validator)", () => {
+  it("canonicalizes a free-form key case-insensitively to the injectable form", () => {
+    expect(normalizeKeyInput("f2")).toBe("F2");
+    expect(normalizeKeyInput("F2")).toBe("F2");
+    expect(normalizeKeyInput("enter")).toBe("Enter");
+    expect(normalizeKeyInput("Enter")).toBe("Enter");
+    expect(normalizeKeyInput("esc")).toBe("Escape"); // abbreviation → canonical (the agent fires Escape)
+    expect(normalizeKeyInput("C")).toBe("c");
+    expect(normalizeKeyInput("  /  ")).toBe("/");
+    expect(normalizeKeyInput("space")).toBe(" ");
+    expect(normalizeKeyInput("pageup")).toBe("PageUp");
+  });
+
+  it("returns null for keys the agent could never inject, so the add form can block them", () => {
+    // These parse cleanly as text but throw `unmapped key` at the agent — the manual
+    // path used to persist them as permanently-broken deck buttons.
+    for (const bad of ["asdf", "escc", "f2 f3", "f25", "", "   "]) {
+      expect(normalizeKeyInput(bad)).toBeNull();
+    }
+  });
+});
+
+describe("clampLabel", () => {
+  it("caps a label at the deck-tile length (MAX_LABEL) and leaves short ones alone", () => {
+    expect(MAX_LABEL).toBe(18);
+    // The "describe it" box can set a label longer than the manual input's maxLength.
+    expect(clampLabel("Toggle The Primary Application Sidebar Panel")).toBe("Toggle The Primary");
+    expect(clampLabel("Toggle The Primary Application Sidebar Panel").length).toBe(18);
+    expect(clampLabel("Short")).toBe("Short");
   });
 });

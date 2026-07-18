@@ -106,6 +106,27 @@ function normalizeKey(word: string): string | null {
   return null;
 }
 
+/**
+ * Validate + canonicalize a free-form key token typed into the manual "key" field,
+ * case-insensitively (like the agent's injector). Returns the canonical key string
+ * the Combo model + injector expect ("enter" → "Enter", "F2" → "F2", "C" → "c",
+ * "/" → "/"), or null when the token isn't an injectable key — so the add form can
+ * reject a value that would otherwise persist a deck button that throws
+ * `unmapped key` on every tap. Routes through the same normalizeKey as the
+ * "describe it" box, keeping the manual and NL entry paths in agreement.
+ */
+export function normalizeKeyInput(raw: string): string | null {
+  return normalizeKey(raw.trim().toLowerCase());
+}
+
+// A deck tile fits ~18 characters. The manual label <input> caps typing there via
+// maxLength, but a label set programmatically (the "describe it" box) bypasses that
+// — clampLabel is the shared cap both entry paths run through.
+export const MAX_LABEL = 18;
+export function clampLabel(s: string): string {
+  return s.slice(0, MAX_LABEL);
+}
+
 function titleCase(words: readonly string[]): string {
   return words
     .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
