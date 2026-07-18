@@ -72,6 +72,26 @@ Bluetooth is now a two-way link — it decodes GATT notifications back into
 `hello`/`ack`/`error` frames — and joins the RTT A/B once an agent-side BLE
 peripheral answers its pings.
 
+### Dependency advisories
+
+`npm audit` is noisy here, but the runtime is clean where it matters:
+
+- **Phone app (root, production): 0 advisories.**
+- **Desktop agent:** the only advisories are `file-type`
+  ([GHSA-5v7r-6r5c-r473](https://github.com/advisories/GHSA-5v7r-6r5c-r473) — an
+  infinite-loop DoS on a malformed ASF media file) pulled transitively by
+  `jimp` → `@nut-tree-fork/nut-js`. The agent imports **only** `keyboard`/`Key`
+  and never touches nut.js's image/screen features, so no input ever reaches
+  `file-type` — the advisory is **unreachable** in CutShort. There is also no safe
+  fix: the patched `file-type` (≥21.3.1) is ESM-only while `jimp` still `require()`s
+  it as CommonJS, so an override would break nut.js at load — and keystroke
+  injection with it.
+- The dev/test toolchain carries a dev-only `undici` advisory that never ships and
+  that `npm audit fix` can't resolve without a breaking toolchain bump.
+
+So **don't run `npm audit fix --force`** — it would break the keystroke library to
+patch a bug that can't be triggered.
+
 ## The 10 skins
 
 Each is a `data-theme` swap on `<html>` — CSS variables plus a few decorative
