@@ -58,6 +58,31 @@ describe("injectCombo — base key resolution", () => {
     expect(keyboard.type).toHaveBeenCalledWith("LeftCmd", "F5");
   });
 
+  it("resolves the whole F1–F24 range, including the high keys and each regex seam", async () => {
+    // baseKey gates function keys on /^f([1-9]|1[0-9]|2[0-4])$/ — three alternations
+    // stitched together. Exercise every one (F1–F9, F10–F19, F20–F24) so a botched
+    // seam (e.g. dropping F13–F24, or letting F20+ through as a two-digit slice) is
+    // caught. The mock's Key proxy echoes the prop, so Key.F13 === "F13".
+    const { keyboard, injectCombo } = await load();
+    for (let n = 1; n <= 24; n++) {
+      await injectCombo({ key: "F" + n });
+      expect(keyboard.type).toHaveBeenLastCalledWith("F" + n);
+    }
+    // Lower-cased free-form input (what the UI invites) resolves to the same canonical key.
+    await injectCombo({ key: "f17" });
+    expect(keyboard.type).toHaveBeenLastCalledWith("F17");
+  });
+
+  it("rejects function keys past F24 instead of typing a bogus key", async () => {
+    // The upper bound matters: nut.js has no F25+, so an out-of-range token must throw
+    // (unmapped) rather than resolve to a non-existent Key. F0 guards the lower edge.
+    const { keyboard, injectCombo } = await load();
+    for (const bad of ["F0", "F25", "F30", "f99"]) {
+      await expect(injectCombo({ key: bad })).rejects.toThrow(/unmapped key/);
+    }
+    expect(keyboard.type).not.toHaveBeenCalled();
+  });
+
   it("resolves a digit via the NUM map", async () => {
     const { keyboard, injectCombo } = await load();
     await injectCombo({ key: "5" });
@@ -91,6 +116,16 @@ describe("injectCombo — base key resolution", () => {
       await injectCombo({ mods: ["MOD"], key });
       expect(keyboard.type).toHaveBeenLastCalledWith("LeftCmd", expected);
     }
+  });
+
+  it("fires a '+' combo instead of throwing at inject time (zoom-in regression)", async () => {
+    // The frame the NL parser builds for "cmd +" is { mods:["MOD"], key:"+" }. baseKey
+    // had no "+" entry, so injecting it threw `unmapped key: "+"` — a command/shortcut
+    // that parsed cleanly but died the instant the user tapped it. It must resolve to
+    // the numpad plus (Key.Add), and the label carries the literal "+" (hence "MOD++").
+    const { keyboard, injectCombo } = await load();
+    await expect(injectCombo({ mods: ["MOD"], key: "+" })).resolves.toBe("MOD++");
+    expect(keyboard.type).toHaveBeenLastCalledWith("LeftCmd", "Add");
   });
 
   it("resolves navigation keys", async () => {
