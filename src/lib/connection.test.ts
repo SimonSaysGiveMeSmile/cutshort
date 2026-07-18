@@ -89,6 +89,17 @@ describe("parsePairing", () => {
     expect(parsePairing("wss://example.com/ws")!.url).toBe("wss://example.com/ws");
   });
 
+  it("accepts a bare host:port paste — the manual field's own placeholder format", () => {
+    // Regression: "hostname.local:8787" has no scheme, so new URL() used to read
+    // "hostname.local:" as the scheme and return a non-null pairing with an empty
+    // host (ws:///ws) — slipping past the "doesn't look like an agent URL" guard.
+    const p = parsePairing("hostname.local:8787")!;
+    expect(p.url).toBe("ws://hostname.local:8787/ws");
+    expect(p.host).toBe("hostname.local");
+    // an IP:port paste (also placeholder-shaped) works the same way now
+    expect(parsePairing("192.168.1.5:8787")!.url).toBe("ws://192.168.1.5:8787/ws");
+  });
+
   it("drops an unrecognized os value instead of trusting the deep link", () => {
     expect(parsePairing("https://x.example/ws?os=linux")!.os).toBeUndefined();
     expect(parsePairing("https://x.example/ws?os=")!.os).toBeUndefined();

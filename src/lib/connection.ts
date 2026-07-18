@@ -64,8 +64,15 @@ export function parsePairing(raw: string): Pairing | null {
     // pipeline so the resulting url always points at the agent's /ws endpoint.
     // Query params (host/os/t) are lifted into the Pairing and dropped from the
     // url; the token is re-applied to the socket URL at connect time.
-    const httpish = text.replace(/^cutshort:\/\//, "https://");
+    // A bare "host:port" paste has no scheme — and it's exactly the manual field's
+    // own placeholder ("hostname.local:8787"). Without a scheme, new URL() misreads
+    // "hostname.local:" AS the scheme and yields an empty host, so the string slips
+    // past as a non-null-but-broken pairing (ws:///ws) instead of connecting. Prepend
+    // ws:// when no scheme is present so the advertised format actually works.
+    const schemed = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `ws://${text}`;
+    const httpish = schemed.replace(/^cutshort:\/\//, "https://");
     const u = new URL(httpish);
+    if (!u.hostname) return null; // parsed to an empty host → not a usable agent URL
     // Validate os against the known set rather than blind-casting: this value comes
     // from an untrusted deep link and drives which modifier glyphs/variants the deck
     // renders, so a stray `?os=linux` must fall back to undefined, not poison the UI.
