@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Plus, Trash2, Eye, EyeOff, Check, Sparkles } from "lucide-react";
 import { Icon, ICON_NAMES } from "./Icon";
 import { parseShortcutPhrase, normalizeKeyInput, clampLabel, MAX_LABEL } from "../lib/nlShortcut";
@@ -13,6 +13,7 @@ import {
 import {
   addCustom,
   getShortcuts,
+  subscribe,
   isCustom,
   isHidden,
   removeShortcut,
@@ -32,8 +33,10 @@ interface Props {
 export function EditSheet({ os, category, onClose }: Props) {
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [cat, setCat] = useState<CategoryId>(category);
-  const [, force] = useState(0); // re-render after store mutations
-  const refresh = () => force((n) => n + 1);
+  // Subscribe to the store like ControllerScreen does, so the list re-renders on
+  // both this sheet's own edits AND a cross-tab change (the `storage` handler
+  // notifies subscribers) — a manual force-counter only caught the former.
+  const shortcuts = useSyncExternalStore(subscribe, getShortcuts);
 
   // new-shortcut form
   const [label, setLabel] = useState("");
@@ -44,7 +47,7 @@ export function EditSheet({ os, category, onClose }: Props) {
   const [phrase, setPhrase] = useState("");
   const [hint, setHint] = useState("");
 
-  const current = getShortcuts().filter((s) => s.category === cat);
+  const current = shortcuts.filter((s) => s.category === cat);
   const hiddenInCat = builtins.filter((s) => s.category === cat && isHidden(s.id));
 
   // Validate the free-form key against what the agent can actually inject, so the
@@ -81,7 +84,6 @@ export function EditSheet({ os, category, onClose }: Props) {
     setLabel("");
     setKey("");
     setMods(["MOD"]);
-    refresh();
   }
 
   return (
@@ -127,10 +129,7 @@ export function EditSheet({ os, category, onClose }: Props) {
               <button
                 className="edit-row-act"
                 aria-label={isCustom(s.id) ? "Delete" : "Hide"}
-                onClick={() => {
-                  removeShortcut(s.id);
-                  refresh();
-                }}
+                onClick={() => removeShortcut(s.id)}
               >
                 {isCustom(s.id) ? <Trash2 size={16} /> : <EyeOff size={16} />}
               </button>
@@ -148,10 +147,7 @@ export function EditSheet({ os, category, onClose }: Props) {
               <button
                 className="edit-row-act"
                 aria-label="Restore"
-                onClick={() => {
-                  restoreBuiltin(s.id);
-                  refresh();
-                }}
+                onClick={() => restoreBuiltin(s.id)}
               >
                 <Eye size={16} />
               </button>
