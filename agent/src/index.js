@@ -32,6 +32,7 @@ import { openTunnel } from "./tunnel.js";
 import { lanIPv4s } from "./net.js";
 import { generateToken, tokenFromUrl, tokensMatch } from "./auth.js";
 import { routePublic, routeLocal, healthPayload, withinDist } from "./serve.js";
+import { lanScanEntry, tunnelScanEntry } from "./scanEntries.js";
 import { startHeartbeat } from "./heartbeat.js";
 import { ensureAccessibility, openAccessibilityPane } from "./macAccess.js";
 import {
@@ -363,19 +364,21 @@ server.listen(PORT, "0.0.0.0", async () => {
   // to the server, only read by the app after a scan) and as a ?t= query for the
   // ws:// paste / hosted-fallback paths.
   const entries = [];
-  if (lan) {
-    if (HAS_APP) entries.push({ label: "Same WiFi (LAN)", url: `http://${lan}:${PORT}/#t=${AUTH_TOKEN}` });
-    else entries.push({ label: "Same WiFi — paste in app", url: `ws://${lan}:${PORT}/ws?t=${AUTH_TOKEN}` });
-  }
+  const lanEntry = lanScanEntry({ lan, port: PORT, hasApp: HAS_APP, token: AUTH_TOKEN });
+  if (lanEntry) entries.push(lanEntry);
 
   console.log("\n🌐  Opening public tunnel…");
   const tunnel = await openTunnel(PORT);
   if (tunnel) {
-    const wsUrl = tunnel.url.replace(/^https/, "wss") + "/ws?t=" + AUTH_TOKEN;
-    const scan = HAS_APP
-      ? `${tunnel.url}/#t=${AUTH_TOKEN}`
-      : `${HOSTED_APP}/#connect=${encodeURIComponent(wsUrl)}`;
-    entries.push({ label: `Anywhere (${tunnel.provider})`, url: scan });
+    entries.push(
+      tunnelScanEntry({
+        tunnelUrl: tunnel.url,
+        provider: tunnel.provider,
+        hasApp: HAS_APP,
+        hostedApp: HOSTED_APP,
+        token: AUTH_TOKEN,
+      }),
+    );
     CURRENT_SHUTDOWN = () => {
       tunnel.close();
       clearPid();
