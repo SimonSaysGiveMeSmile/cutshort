@@ -138,4 +138,30 @@ describe("parseShortcutPhrase", () => {
       label: "Something",
     });
   });
+
+  it("does not let a trailing key-like label word orphan the modifiers", () => {
+    // Regression: the key used to be the LAST key-like token, so a trailing
+    // single-letter/digit/punct label word stole the key role and dumped EVERY
+    // modifier into the label — a keystroke app silently firing a bare wrong key.
+    // Now the combo-forming key (one with a modifier before it) wins.
+    expect(parseShortcutPhrase("cmd n a", "mac")).toEqual({ mods: ["MOD"], key: "n", label: "A" });
+    expect(parseShortcutPhrase("cmd shift a b", "mac")).toEqual({
+      mods: ["MOD", "SHIFT"],
+      key: "a",
+      label: "B",
+    });
+    // Still falls back to the last key when no candidate has a leading modifier.
+    expect(parseShortcutPhrase("rename symbol f2", "mac")).toEqual({
+      mods: [],
+      key: "F2",
+      label: "Rename Symbol",
+    });
+    // And the documented label-word case is unchanged (n has cmd before it; the
+    // leading "a" is a label word).
+    expect(parseShortcutPhrase("a quick note cmd n", "mac")).toEqual({
+      mods: ["MOD"],
+      key: "n",
+      label: "A Quick Note",
+    });
+  });
 });

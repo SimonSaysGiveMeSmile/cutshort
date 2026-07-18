@@ -160,9 +160,17 @@ export function parseShortcutPhrase(text: string, os: OS): ParsedShortcut | null
   });
 
   if (keyIndices.length === 0) return null; // no key → not a parseable combo
-  // The actual key is the LAST key-like token; an earlier single-letter token is
-  // more likely a label word ("a quick note cmd n" → key n, label "A Quick Note").
-  const chosenIndex = keyIndices[keyIndices.length - 1];
+  // The key is the last key-like token that actually forms a combo — one with a
+  // modifier immediately before it — so a trailing key-like *label* word can't
+  // steal the key role and orphan every modifier. "cmd n a": "cmd n" is the combo
+  // and "a" the label; picking the last token "a" would drop the ⌘ and fire a bare
+  // "a". Fall back to the plain last key when nothing has a leading modifier, so
+  // "a quick note cmd n" still picks n (label "A Quick Note") and the modifier-less
+  // "rename symbol f2" still picks f2 (label "Rename Symbol").
+  const withLeadingMod = keyIndices.filter((i) => i > 0 && modAt[i - 1]);
+  const chosenIndex = withLeadingMod.length
+    ? withLeadingMod[withLeadingMod.length - 1]
+    : keyIndices[keyIndices.length - 1];
   const key = keyByIndex[chosenIndex];
 
   // The combo's modifiers are the *contiguous* run of modifier tokens immediately
