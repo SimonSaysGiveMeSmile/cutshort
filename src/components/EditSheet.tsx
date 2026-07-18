@@ -180,6 +180,8 @@ export function EditSheet({ os, category, onClose }: Props) {
               autoCorrect="off"
               spellCheck={false}
               aria-label="Describe a shortcut in words"
+              aria-describedby={hint ? "describe-hint" : undefined}
+              aria-invalid={hint !== ""}
             />
             <button
               type="button"
@@ -191,7 +193,11 @@ export function EditSheet({ os, category, onClose }: Props) {
               <Sparkles size={15} strokeWidth={2} /> Fill
             </button>
           </div>
-          {hint && <div className="edit-describe-hint">{hint}</div>}
+          {hint && (
+            <div className="edit-describe-hint" id="describe-hint" role="alert">
+              {hint}
+            </div>
+          )}
 
           <input
             className="input"

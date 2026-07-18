@@ -10,9 +10,16 @@ const AGENT_CMD = "npx cutshort-agent";
 
 export function ConnectScreen({ onConnected }: Props) {
   const [manual, setManual] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Which pairing is in flight (null = idle). Drives the disabled/spinner state and,
+  // via a live region, tells screen-reader users the button did something during the
+  // multi-second connect — otherwise CONNECT just goes silently disabled.
+  const [pairing, setPairing] = useState<null | "manual" | "bluetooth">(null);
+  const busy = pairing !== null;
   const [err, setErr] = useState("");
-  const [copied, setCopied] = useState(false);
+  // Copy outcome for both the button label and a live-region announcement (the
+  // COPY→COPIED text swap sits inside the button's own accessible name, so AT never
+  // hears it).
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
 
   async function connectManual() {
     const p = parsePairing(manual);
@@ -20,19 +27,19 @@ export function ConnectScreen({ onConnected }: Props) {
       setErr("That doesn't look like an agent URL.");
       return;
     }
-    setBusy(true);
+    setPairing("manual");
     setErr("");
     const ok = await connection.pair(p);
-    setBusy(false);
+    setPairing(null);
     if (ok) onConnected();
     else setErr(connection.lastError || "Couldn't reach the agent.");
   }
 
   async function bluetooth() {
-    setBusy(true);
+    setPairing("bluetooth");
     setErr("");
     const ok = await connection.pairBluetooth();
-    setBusy(false);
+    setPairing(null);
     if (ok) onConnected();
     else setErr(connection.lastError || "Bluetooth pairing failed.");
   }
@@ -40,10 +47,13 @@ export function ConnectScreen({ onConnected }: Props) {
   function copyCmd() {
     navigator.clipboard?.writeText(AGENT_CMD).then(
       () => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1400);
+        setCopyState("ok");
+        window.setTimeout(() => setCopyState("idle"), 1400);
       },
-      () => {},
+      () => {
+        setCopyState("err");
+        window.setTimeout(() => setCopyState("idle"), 1400);
+      },
     );
   }
 
@@ -87,9 +97,16 @@ export function ConnectScreen({ onConnected }: Props) {
               {AGENT_CMD}
             </code>
             <button className="cp-copy" onClick={copyCmd} aria-label="Copy command">
-              {copied ? "COPIED" : "COPY"}
+              {copyState === "ok" ? "COPIED" : "COPY"}
             </button>
           </div>
+          <span className="sr-only" role="status" aria-live="polite">
+            {copyState === "ok"
+              ? "Command copied to clipboard"
+              : copyState === "err"
+                ? "Couldn't copy — select and copy the command manually"
+                : ""}
+          </span>
           <p className="cp-note">
             Scan the QR it prints — opens this deck already paired. No app store,
             no account.
@@ -117,7 +134,14 @@ export function ConnectScreen({ onConnected }: Props) {
               }}
             />
           </div>
-          <div className="cp-actions">
+          <div className="cp-actions" aria-busy={busy}>
+            <span className="sr-only" role="status" aria-live="polite">
+              {pairing === "manual"
+                ? "Connecting to the agent…"
+                : pairing === "bluetooth"
+                  ? "Pairing over Bluetooth…"
+                  : ""}
+            </span>
             <button
               className="cp-btn cp-btn--primary"
               disabled={busy || !manual}
