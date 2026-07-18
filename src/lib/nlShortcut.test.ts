@@ -100,6 +100,28 @@ describe("parseShortcutPhrase", () => {
     expect(parseShortcutPhrase("f12", "mac")).toEqual({ mods: [], key: "F12", label: "" });
   });
 
+  it("resolves the high function keys F13–F24 the agent injects", () => {
+    // The parser capped at F12 while keys.js injects F1–F24 — a whole range of keys
+    // the backend supports was unreachable from the NL box. Pin the widened range.
+    expect(parseShortcutPhrase("f13", "mac")).toEqual({ mods: [], key: "F13", label: "" });
+    expect(parseShortcutPhrase("shift f24", "win")).toEqual({ mods: ["SHIFT"], key: "F24", label: "" });
+    expect(parseShortcutPhrase("f25", "mac")).toBeNull(); // still out of range
+  });
+
+  it("resolves the navigation keys the agent injects (home/end/page up-down/insert)", () => {
+    // keys.js maps Home/End/PageUp/PageDown/Insert but the parser couldn't produce
+    // them. "cmd page up" used to drop the modifier and resolve a bare ArrowUp.
+    expect(parseShortcutPhrase("cmd home", "mac")).toEqual({ mods: ["MOD"], key: "Home", label: "" });
+    expect(parseShortcutPhrase("ctrl end", "win")).toEqual({ mods: ["MOD"], key: "End", label: "" });
+    expect(parseShortcutPhrase("cmd page up", "mac")).toEqual({ mods: ["MOD"], key: "PageUp", label: "" });
+    expect(parseShortcutPhrase("cmd page down", "mac")).toEqual({ mods: ["MOD"], key: "PageDown", label: "" });
+    expect(parseShortcutPhrase("pgup", "mac")).toEqual({ mods: [], key: "PageUp", label: "" });
+    expect(parseShortcutPhrase("pgdn", "mac")).toEqual({ mods: [], key: "PageDown", label: "" });
+    expect(parseShortcutPhrase("insert", "mac")).toEqual({ mods: [], key: "Insert", label: "" });
+    // a bare "up"/"down" with no leading "page" is still an arrow key, not PageUp
+    expect(parseShortcutPhrase("cmd up", "mac")).toEqual({ mods: ["MOD"], key: "ArrowUp", label: "" });
+  });
+
   it("keeps a leading modifier-synonym word in the label when it's not in the combo cluster", () => {
     // "alt" here is a label word (separated from the cmd+a cluster by "text").
     expect(parseShortcutPhrase("alt text cmd a", "mac")).toEqual({

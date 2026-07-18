@@ -145,6 +145,11 @@ const MAC_GLYPHS: Record<string, string> = {
   ArrowDown: "↓",
   ArrowLeft: "←",
   ArrowRight: "→",
+  Home: "↖",
+  End: "↘",
+  PageUp: "⇞",
+  PageDown: "⇟",
+  Insert: "Ins",
 };
 
 const WIN_GLYPHS: Record<string, string> = {
@@ -158,6 +163,11 @@ const WIN_GLYPHS: Record<string, string> = {
   Tab: "Tab",
   Delete: "Del",
   Backspace: "Bksp",
+  Home: "Home",
+  End: "End",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  Insert: "Ins",
 };
 
 /** Human-readable combo string, e.g. "⌘⇧R" (mac) or "Ctrl+Shift+R" (win). */

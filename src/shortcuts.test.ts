@@ -56,7 +56,13 @@ describe("comboLabel — mac (glyphs, no separator)", () => {
     [{ mods: ["MOD"], key: "Tab" }, "⌘⇥"],
     [{ mods: ["MOD", "ALT"], key: "ArrowDown" }, "⌘⌥↓"],
     [{ mods: [], key: "F11" }, "F11"],
+    [{ mods: [], key: "F13" }, "F13"],
     [{ mods: ["MOD", "SHIFT"], key: "Backspace" }, "⌘⇧⌫"],
+    [{ mods: ["MOD"], key: "PageUp" }, "⌘⇞"],
+    [{ mods: ["MOD"], key: "PageDown" }, "⌘⇟"],
+    [{ mods: [], key: "Home" }, "↖"],
+    [{ mods: [], key: "End" }, "↘"],
+    [{ mods: ["MOD"], key: "Insert" }, "⌘Ins"],
   ];
   it.each(cases)("formats %j as %s", (combo, expected) => {
     expect(comboLabel(combo, "mac")).toBe(expected);
@@ -74,6 +80,11 @@ describe("comboLabel — win (words, + separator)", () => {
     [{ mods: ["MOD", "SHIFT"], key: "Delete" }, "Ctrl+Shift+Del"],
     [{ mods: [], key: "F11" }, "F11"],
     [{ mods: ["ALT"], key: "F4" }, "Alt+F4"],
+    [{ mods: ["MOD"], key: "PageUp" }, "Ctrl+PgUp"],
+    [{ mods: ["MOD"], key: "PageDown" }, "Ctrl+PgDn"],
+    [{ mods: [], key: "Home" }, "Home"],
+    [{ mods: [], key: "End" }, "End"],
+    [{ mods: ["MOD"], key: "Insert" }, "Ctrl+Ins"],
   ];
   it.each(cases)("formats %j as %s", (combo, expected) => {
     expect(comboLabel(combo, "win")).toBe(expected);

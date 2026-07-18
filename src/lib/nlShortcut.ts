@@ -59,6 +59,17 @@ const KEY_WORDS: Record<string, string> = {
   arrowleft: "ArrowLeft",
   right: "ArrowRight",
   arrowright: "ArrowRight",
+  // Navigation keys the agent injects (keys.js NAMED: Home/End/PageUp/PageDown/
+  // Insert) but the parser previously couldn't produce. "page up"/"page down" are
+  // joined into pageup/pagedown before this lookup (see parseShortcutPhrase).
+  home: "Home",
+  end: "End",
+  pageup: "PageUp",
+  pgup: "PageUp",
+  pagedown: "PageDown",
+  pgdn: "PageDown",
+  insert: "Insert",
+  ins: "Insert",
   plus: "+",
   minus: "-",
   slash: "/",
@@ -85,7 +96,7 @@ function resolveModWord(word: string, os: OS): ModToken | null {
 
 function normalizeKey(word: string): string | null {
   if (KEY_WORDS[word]) return KEY_WORDS[word];
-  const fkey = /^f([1-9]|1[0-2])$/.exec(word); // f1..f12
+  const fkey = /^f([1-9]|1[0-9]|2[0-4])$/.exec(word); // f1..f24 (matches keys.js)
   if (fkey) return `F${fkey[1]}`;
   if (/^[a-z0-9]$/.test(word)) return word; // single letter / digit
   // A lone punctuation key. "+" is included so "cmd +" (zoom-in) resolves the same
@@ -111,13 +122,28 @@ function titleCase(words: readonly string[]): string {
  */
 export function parseShortcutPhrase(text: string, os: OS): ParsedShortcut | null {
   if (!text || !text.trim()) return null;
-  const tokens = text
+  const rawTokens = text
     .replace(/([⌘⇧⌥⌃⊞])/g, " $1 ") // split glyph runs like "⌘⇧P" apart
     .trim()
     .toLowerCase()
     .split(/\s+/)
     // Expand "cmd+shift+p" / "cmd-shift-p", but keep a lone "-"/"+" (the key).
     .flatMap((t) => (t.length > 1 ? t.split(/[+\-]/).filter(Boolean) : [t]));
+
+  // Join the two-word navigation keys "page up"/"page down" into the single token
+  // KEY_WORDS knows (pageup/pagedown), so "cmd page up" yields Cmd+PageUp instead of
+  // dropping the modifier and resolving a bare ArrowUp. A standalone "up"/"down"
+  // (no leading "page") stays an arrow key.
+  const tokens: string[] = [];
+  for (let i = 0; i < rawTokens.length; i++) {
+    const next = rawTokens[i + 1];
+    if (rawTokens[i] === "page" && (next === "up" || next === "down")) {
+      tokens.push("page" + next);
+      i++;
+    } else {
+      tokens.push(rawTokens[i]);
+    }
+  }
 
   // Classify each token up front: a modifier (its resolved token) or, failing
   // that, a key. Anything that's neither is a label word.
